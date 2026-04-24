@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import type { InputJsonValue } from "@prisma/client/runtime/library";
 
 type FV = Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsonValue = any;
 
 export async function syncDealValuesToContact(
   dealId: string,
@@ -28,7 +29,7 @@ export async function syncDealValuesToContact(
   const merged = { ...((contact.field_values as FV) ?? {}), ...patch };
   await prisma.contact.update({
     where: { id: deal.contact_id },
-    data: { field_values: merged as InputJsonValue },
+    data: { field_values: merged as JsonValue },
   });
 }
 
@@ -56,7 +57,7 @@ export async function syncContactValuesToDeal(
       const merged = { ...((deal.field_values as FV) ?? {}), ...patch };
       return prisma.deal.update({
         where: { id: deal.id },
-        data: { field_values: merged as InputJsonValue },
+        data: { field_values: merged as JsonValue },
       });
     })
   );
