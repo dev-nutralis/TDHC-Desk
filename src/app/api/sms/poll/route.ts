@@ -111,11 +111,23 @@ export async function GET(req: NextRequest) {
 
     // Find contact by phone number — match last 8 digits to handle +386 vs 0 prefix
     const normalized = msg.phone.replace(/\D/g, "").slice(-8);
-    const contacts = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "Contact"
+    console.log(`[sms/poll] Searching for phone last8="${normalized}" from "${msg.phone}"`);
+
+    const contacts = await prisma.$queryRaw<{ id: string; field_values: unknown }[]>`
+      SELECT id, field_values FROM "Contact"
       WHERE field_values::text LIKE ${"%" + normalized + "%"}
       LIMIT 1
     `;
+    console.log(`[sms/poll] Found ${contacts.length} contacts for "${normalized}"`);
+
+    // Debug: also log a sample contact's phone data
+    if (contacts.length === 0) {
+      const sample = await prisma.$queryRaw<{ field_values: unknown }[]>`
+        SELECT field_values FROM "Contact" WHERE field_values::text LIKE '%number%' LIMIT 1
+      `;
+      if (sample[0]) console.log(`[sms/poll] Sample contact field_values:`, JSON.stringify(sample[0].field_values).slice(0, 300));
+    }
+
     const contactId = contacts[0]?.id ?? null;
 
     if (contactId) {
