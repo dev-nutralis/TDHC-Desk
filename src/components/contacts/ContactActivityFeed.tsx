@@ -780,7 +780,7 @@ export default function ContactActivityFeed({ contactId }: Props) {
     setSaveError(null);
     try {
       const payload: {
-        type: "email" | "note";
+        type: "email" | "note" | "sms";
         subject?: string;
         body: string;
         html?: string;
