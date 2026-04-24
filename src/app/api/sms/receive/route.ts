@@ -41,10 +41,11 @@ export async function POST(req: NextRequest) {
   const message = content.replace(/\+/g, " ").trim();
   const normalizedPhone = phone.trim();
 
-  // Find contact by phone number in field_values (searches all multi_phone entries)
+  // Match last 8 digits to handle +386 vs 0 prefix differences
+  const last8 = normalizedPhone.replace(/\D/g, "").slice(-8);
   const contacts = await prisma.$queryRaw<{ id: string }[]>`
     SELECT id FROM "Contact"
-    WHERE field_values::text ILIKE ${"%" + normalizedPhone + "%"}
+    WHERE field_values::text LIKE ${"%" + last8 + "%"}
     LIMIT 1
   `;
 

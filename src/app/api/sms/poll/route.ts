@@ -109,8 +109,8 @@ export async function GET(req: NextRequest) {
     });
     if (existing) continue;
 
-    // Find contact by phone number in field_values
-    const normalized = msg.phone.replace(/\D/g, "").slice(-9); // last 9 digits
+    // Find contact by phone number — match last 8 digits to handle +386 vs 0 prefix
+    const normalized = msg.phone.replace(/\D/g, "").slice(-8);
     const contacts = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM "Contact"
       WHERE field_values::text LIKE ${"%" + normalized + "%"}
