@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Phone, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Play, Pause, Loader2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Phone, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Play, Pause, Loader2, RefreshCw } from "lucide-react";
 import { DialPad } from "./DialPad";
 import type { Call } from "@prisma/client";
 import { cn } from "@/lib/utils";
+import { useSipPhoneContext } from "@/context/SipPhoneContext";
 
 function formatDuration(sec: number | null): string {
   if (!sec) return "—";
@@ -88,11 +89,31 @@ function RecordingPlayer({ callId }: { callId: string }) {
 type Props = { initialCalls: Call[] };
 
 export function CallsClient({ initialCalls }: Props) {
+  const [calls, setCalls] = useState<Call[]>(initialCalls);
+  const { phone } = useSipPhoneContext();
+
+  const fetchCalls = useCallback(() => {
+    fetch("/api/calls")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.calls) setCalls(data.calls); })
+      .catch(() => {});
+  }, []);
+
+  // Refresh when call ends
+  const prevState = phone?.state;
+  useEffect(() => {
+    if (prevState === "idle") fetchCalls();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prevState]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="h-14 shrink-0 flex items-center px-6 border-b border-[#E4E7EB] bg-white">
+      <div className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-[#E4E7EB] bg-white">
         <h1 className="text-[15px] font-semibold text-[#2F3941]">Calls</h1>
+        <button onClick={fetchCalls} className="text-[#68717A] hover:text-[#2F3941] transition-colors" title="Refresh">
+          <RefreshCw size={15} />
+        </button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -110,14 +131,14 @@ export function CallsClient({ initialCalls }: Props) {
               Recent Calls
             </h2>
 
-            {initialCalls.length === 0 ? (
+            {calls.length === 0 ? (
               <div className="text-center py-16 text-[#C2C8CC]">
                 <Phone size={32} className="mx-auto mb-3 opacity-30" />
                 <p className="text-sm">No calls yet</p>
               </div>
             ) : (
               <div className="space-y-1">
-                {initialCalls.map((call) => {
+                {calls.map((call) => {
                   const number = call.direction === "inbound" ? call.caller_number : call.callee_number;
                   return (
                     <div
