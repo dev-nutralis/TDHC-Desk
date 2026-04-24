@@ -5,16 +5,9 @@ import { isYeastarConfigured } from "@/lib/yeastar-client";
 const YEASTAR_HOST = process.env.YEASTAR_HOST ?? "";
 const CLIENT_ID = process.env.YEASTAR_CLIENT_ID ?? "";
 const CLIENT_SECRET = process.env.YEASTAR_CLIENT_SECRET ?? "";
-const LISTEN_DURATION_MS = 55_000;
 const WEBHOOK_SECRET = process.env.ARI_WEBHOOK_SECRET ?? process.env.SMS_WEBHOOK_SECRET ?? "";
 
-interface CdrEvent {
-  call_id: string;
-  recording: string;
-}
-
-async function getAccessToken(): Promise<string> {
-  // Check DB cache first
+async function getToken(): Promise<string> {
   const cached = await prisma.yeastarToken.findUnique({ where: { id: "general" } });
   if (cached && cached.expires_at.getTime() > Date.now() + 60_000) return cached.token;
 
@@ -24,7 +17,7 @@ async function getAccessToken(): Promise<string> {
     body: JSON.stringify({ username: CLIENT_ID, password: CLIENT_SECRET }),
   });
   const data = await res.json();
-  if (!data.access_token) throw new Error(`No token: ${JSON.stringify(data)}`);
+  if (!data.access_token) throw new Error(`Token error: ${JSON.stringify(data)}`);
 
   const expiresAt = Date.now() + (data.access_token_expire_time ?? 1800) * 1000;
   await prisma.yeastarToken.upsert({
@@ -35,63 +28,34 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-function listenForRecordings(token: string): Promise<CdrEvent[]> {
-  return new Promise((resolve) => {
-    const events: CdrEvent[] = [];
-    let done = false;
+async function fetchCdrRecordings(token: string): Promise<{ recording: string; caller: string; callee: string }[]> {
+  // Query CDR for last 10 minutes
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - 10 * 60;
 
-    // Check if WebSocket is available
-    const WS = (globalThis as any).WebSocket;
-    if (!WS) {
-      console.error("[recording-sync] WebSocket not available in this runtime");
-      resolve(events);
-      return;
+  const url = `https://${YEASTAR_HOST}/openapi/v1.0/call/cdr?access_token=${token}&start_time=${from}&end_time=${now}`;
+
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) {
+      console.log(`[recording-sync] CDR API ${res.status}: ${await res.text()}`);
+      return [];
     }
+    const data = await res.json();
+    console.log(`[recording-sync] CDR response: ${JSON.stringify(data).slice(0, 300)}`);
 
-    function finish() {
-      if (done) return;
-      done = true;
-      try { (ws as any).close?.(); } catch {}
-      resolve(events);
-    }
-
-    const timer = setTimeout(finish, LISTEN_DURATION_MS);
-    const wsUrl = `wss://${YEASTAR_HOST}/openapi/v1.0/subscribe?access_token=${encodeURIComponent(token)}`;
-    console.log(`[recording-sync] Connecting to ${YEASTAR_HOST}...`);
-
-    const ws = new WS(wsUrl) as WebSocket;
-
-    ws.addEventListener("open", () => {
-      console.log("[recording-sync] WS connected, subscribing to 30012...");
-      ws.send(JSON.stringify({ topic_list: [30012] }));
-    });
-
-    ws.addEventListener("message", (event: MessageEvent) => {
-      try {
-        const envelope = JSON.parse(event.data as string);
-        console.log(`[recording-sync] WS message type=${envelope.type}`);
-        if (envelope.type !== 30012) return;
-        let msg = envelope.msg;
-        if (typeof msg === "string") { try { msg = JSON.parse(msg); } catch {} }
-        if (msg?.call_id && msg?.recording) {
-          console.log(`[recording-sync] Recording: call_id=${msg.call_id} file=${msg.recording}`);
-          events.push({ call_id: msg.call_id, recording: msg.recording });
-        }
-      } catch {}
-    });
-
-    ws.addEventListener("error", (e: any) => {
-      console.error("[recording-sync] WS error:", e?.message ?? e);
-      clearTimeout(timer);
-      finish();
-    });
-
-    ws.addEventListener("close", (e: any) => {
-      console.log(`[recording-sync] WS closed code=${e?.code}`);
-      clearTimeout(timer);
-      finish();
-    });
-  });
+    const records: any[] = data?.data ?? data?.cdr_list ?? data?.records ?? [];
+    return records
+      .filter((r: any) => r.recording || r.record_file || r.recordfile)
+      .map((r: any) => ({
+        recording: r.recording ?? r.record_file ?? r.recordfile,
+        caller: r.caller ?? r.from ?? "",
+        callee: r.callee ?? r.to ?? "",
+      }));
+  } catch (err) {
+    console.error("[recording-sync] CDR fetch error:", err instanceof Error ? err.message : err);
+    return [];
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -109,18 +73,18 @@ export async function GET(req: NextRequest) {
 
   let token: string;
   try {
-    token = await getAccessToken();
+    token = await getToken();
+    console.log("[recording-sync] Token OK, querying CDR...");
   } catch (err) {
-    console.error("[recording-sync] Token error:", err);
+    console.error("[recording-sync] Token error:", err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: true, note: "Token failed" });
   }
 
-  const events = await listenForRecordings(token);
-  console.log(`[recording-sync] ${events.length} recording events`);
+  const cdrs = await fetchCdrRecordings(token);
+  console.log(`[recording-sync] Found ${cdrs.length} CDRs with recordings`);
 
   let synced = 0;
-  for (const event of events) {
-    // Find most recent answered call without a recording yet
+  for (const cdr of cdrs) {
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const call = await prisma.call.findFirst({
       where: {
@@ -135,11 +99,11 @@ export async function GET(req: NextRequest) {
 
     await prisma.call.update({
       where: { id: call.id },
-      data: { recording_id: event.recording },
+      data: { recording_id: cdr.recording },
     });
     synced++;
-    console.log(`[recording-sync] Linked recording ${event.recording} → call ${call.id}`);
+    console.log(`[recording-sync] Linked ${cdr.recording} → call ${call.id}`);
   }
 
-  return NextResponse.json({ ok: true, synced, total: events.length });
+  return NextResponse.json({ ok: true, synced, total: cdrs.length });
 }
