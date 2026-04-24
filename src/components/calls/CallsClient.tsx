@@ -1,6 +1,7 @@
 "use client";
 
-import { Phone, PhoneIncoming, PhoneMissed, PhoneOff, Clock } from "lucide-react";
+import { useState } from "react";
+import { Phone, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Play, Pause, Loader2 } from "lucide-react";
 import { DialPad } from "./DialPad";
 import type { Call } from "@prisma/client";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,60 @@ function CallStatusIcon({ status, direction }: { status: string; direction: stri
   if (status === "completed") return <Phone size={14} className="text-green-500" />;
   if (status === "failed") return <PhoneOff size={14} className="text-red-400" />;
   return <Phone size={14} className="text-[#68717A]" />;
+}
+
+function RecordingPlayer({ callId }: { callId: string }) {
+  const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState(false);
+
+  async function handlePlay() {
+    if (audio) {
+      if (playing) {
+        audio.pause();
+        setPlaying(false);
+      } else {
+        audio.play();
+        setPlaying(true);
+      }
+      return;
+    }
+
+    setLoading(true);
+    setError(false);
+    try {
+      const res = await fetch(`/api/calls/${callId}/recording`);
+      if (!res.ok) throw new Error("No recording");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.onended = () => setPlaying(false);
+      a.play();
+      setAudio(a);
+      setPlaying(true);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (error) return <span className="text-[10px] text-[#C2C8CC]">No recording</span>;
+
+  return (
+    <button
+      onClick={handlePlay}
+      title={playing ? "Pause" : "Play recording"}
+      className="w-7 h-7 rounded-full flex items-center justify-center bg-[#038153] hover:bg-[#026b44] text-white transition-colors shrink-0"
+    >
+      {loading
+        ? <Loader2 size={13} className="animate-spin" />
+        : playing
+        ? <Pause size={13} />
+        : <Play size={13} />}
+    </button>
+  );
 }
 
 type Props = { initialCalls: Call[] };
@@ -83,14 +138,19 @@ export function CallsClient({ initialCalls }: Props) {
                         <p className="text-xs text-[#68717A] capitalize">{call.direction} · {call.status}</p>
                       </div>
 
-                      <div className="text-right shrink-0">
-                        <p className="text-xs text-[#68717A]">{formatDate(call.started_at)}</p>
-                        {call.duration_sec != null && (
-                          <p className="text-xs text-[#2F3941] font-medium flex items-center gap-1 justify-end mt-0.5">
-                            <Clock size={10} />
-                            {formatDuration(call.duration_sec)}
-                          </p>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {call.recording_id && (
+                          <RecordingPlayer callId={call.id} />
                         )}
+                        <div className="text-right">
+                          <p className="text-xs text-[#68717A]">{formatDate(call.started_at)}</p>
+                          {call.duration_sec != null && (
+                            <p className="text-xs text-[#2F3941] font-medium flex items-center gap-1 justify-end mt-0.5">
+                              <Clock size={10} />
+                              {formatDuration(call.duration_sec)}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

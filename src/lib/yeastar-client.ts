@@ -71,6 +71,25 @@ export async function getYeastarSignCredentials(sipUser: string): Promise<{ sign
   return { sign };
 }
 
+export async function downloadRecording(filename: string): Promise<Buffer> {
+  const token = await getLinkusToken();
+  const urlRes = await fetch(
+    `https://${YEASTAR_HOST}/openapi/v1.0/recording/download?file=${encodeURIComponent(filename)}&access_token=${token}`,
+  );
+  if (!urlRes.ok) throw new Error(`Yeastar recording URL error: ${urlRes.status}`);
+  const data = await urlRes.json();
+  const downloadUrl: string = data?.download_resource_url ?? data?.url ?? "";
+  if (!downloadUrl) throw new Error(`No download URL in response: ${JSON.stringify(data)}`);
+
+  const audioRes = await fetch(downloadUrl);
+  if (!audioRes.ok) throw new Error(`Recording download error: ${audioRes.status}`);
+  return Buffer.from(await audioRes.arrayBuffer());
+}
+
 export function isYeastarConfigured(): boolean {
   return Boolean(YEASTAR_HOST && CLIENT_ID && CLIENT_SECRET);
+}
+
+export function getYeastarWsUrl(accessToken: string): string {
+  return `wss://${YEASTAR_HOST}/openapi/v1.0/subscribe?access_token=${encodeURIComponent(accessToken)}`;
 }

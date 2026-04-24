@@ -4,6 +4,10 @@
     {
       "path": "/api/sms/poll",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/calls/recording-sync",
+      "schedule": "* * * * *"
     }
   ],
   "functions": {
@@ -15,6 +19,12 @@
     },
     "src/app/api/sms/poll/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/calls/recording-sync/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/calls/[id]/recording/route.ts": {
+      "maxDuration": 30
     }
   }
 }
