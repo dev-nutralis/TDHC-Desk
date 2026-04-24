@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 
 const POLL_SECRET = process.env.SMS_POLL_SECRET ?? process.env.SMS_WEBHOOK_SECRET ?? "";
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   // Secure the cron endpoint
   const auth = req.headers.get("authorization") ?? "";
   if (POLL_SECRET && auth !== `Bearer ${POLL_SECRET}`) {
