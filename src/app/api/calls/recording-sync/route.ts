@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { isYeastarConfigured } from "@/lib/yeastar-client";
+import WebSocket from "ws";
 
 const YEASTAR_HOST = process.env.YEASTAR_HOST ?? "";
 const CLIENT_ID = process.env.YEASTAR_CLIENT_ID ?? "";
 const CLIENT_SECRET = process.env.YEASTAR_CLIENT_SECRET ?? "";
 const WEBHOOK_SECRET = process.env.ARI_WEBHOOK_SECRET ?? process.env.SMS_WEBHOOK_SECRET ?? "";
+const LISTEN_DURATION_MS = 50_000;
 
 async function getToken(): Promise<string> {
   const cached = await prisma.yeastarToken.findUnique({ where: { id: "general" } });
@@ -28,42 +30,54 @@ async function getToken(): Promise<string> {
   return data.access_token;
 }
 
-async function tryEndpoint(url: string): Promise<{ recording: string }[] | null> {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
-    const data = await res.json();
-    console.log(`[recording-sync] ${url.split("?")[0].split("/v1.0/")[1]}: errcode=${data.errcode} keys=${Object.keys(data).join(",")}`);
+function listenForCdr(token: string): Promise<{ call_id: string; recording: string }[]> {
+  return new Promise((resolve) => {
+    const events: { call_id: string; recording: string }[] = [];
+    let done = false;
 
-    if (data.errcode !== 0) return null;
+    function finish() {
+      if (done) return;
+      done = true;
+      try { ws.terminate(); } catch {}
+      resolve(events);
+    }
 
-    const records: any[] = data?.data ?? data?.cdr_list ?? data?.records ?? data?.list ?? [];
-    return records
-      .filter((r: any) => r.recording || r.record_file || r.recordfile || r.file)
-      .map((r: any) => ({ recording: r.recording ?? r.record_file ?? r.recordfile ?? r.file }));
-  } catch {
-    return null;
-  }
-}
+    const timer = setTimeout(finish, LISTEN_DURATION_MS);
+    const wsUrl = `wss://${YEASTAR_HOST}/openapi/v1.0/subscribe?access_token=${encodeURIComponent(token)}`;
+    console.log(`[recording-sync] Connecting via ws package...`);
 
-async function fetchRecordings(token: string): Promise<{ recording: string }[]> {
-  const base = `https://${YEASTAR_HOST}/openapi/v1.0`;
-  const t = `access_token=${token}`;
+    const ws = new WebSocket(wsUrl);
 
-  // Try known Yeastar P-Series CDR endpoints
-  const attempts = [
-    `${base}/call/cdr?${t}&page=1&pagesize=20`,
-    `${base}/pbx/record?${t}&page=1&pagesize=20`,
-    `${base}/call/record?${t}&page=1&pagesize=20`,
-    `${base}/cdr?${t}&page=1&pagesize=20`,
-  ];
+    ws.on("open", () => {
+      console.log("[recording-sync] Connected, subscribing to 30012...");
+      ws.send(JSON.stringify({ topic_list: [30012] }));
+    });
 
-  for (const url of attempts) {
-    const result = await tryEndpoint(url);
-    if (result !== null) return result;
-  }
+    ws.on("message", (data) => {
+      try {
+        const envelope = JSON.parse(data.toString());
+        if (envelope.type !== 30012) return;
+        let msg = envelope.msg;
+        if (typeof msg === "string") { try { msg = JSON.parse(msg); } catch {} }
+        if (msg?.call_id && msg?.recording) {
+          console.log(`[recording-sync] CDR: call_id=${msg.call_id} recording=${msg.recording}`);
+          events.push({ call_id: msg.call_id, recording: msg.recording });
+        }
+      } catch {}
+    });
 
-  console.log("[recording-sync] No working CDR endpoint — check Yeastar API docs");
-  return [];
+    ws.on("error", (err) => {
+      console.error("[recording-sync] WS error:", err.message);
+      clearTimeout(timer);
+      finish();
+    });
+
+    ws.on("close", (code) => {
+      console.log(`[recording-sync] WS closed code=${code}`);
+      clearTimeout(timer);
+      finish();
+    });
+  });
 }
 
 export async function GET(req: NextRequest) {
@@ -82,13 +96,14 @@ export async function GET(req: NextRequest) {
   let token: string;
   try {
     token = await getToken();
+    console.log("[recording-sync] Token OK");
   } catch (err) {
     console.error("[recording-sync] Token error:", err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: true, note: "Token failed" });
   }
 
-  const cdrs = await fetchRecordings(token);
-  console.log(`[recording-sync] Found ${cdrs.length} recordings`);
+  const cdrs = await listenForCdr(token);
+  console.log(`[recording-sync] Collected ${cdrs.length} CDR events`);
 
   let synced = 0;
   for (const cdr of cdrs) {
@@ -101,7 +116,6 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { started_at: "desc" },
     });
-
     if (!call) continue;
 
     await prisma.call.update({
@@ -109,7 +123,7 @@ export async function GET(req: NextRequest) {
       data: { recording_id: cdr.recording },
     });
     synced++;
-    console.log(`[recording-sync] Linked ${cdr.recording} → call ${call.id}`);
+    console.log(`[recording-sync] Saved recording ${cdr.recording} → call ${call.id}`);
   }
 
   return NextResponse.json({ ok: true, synced, total: cdrs.length });
