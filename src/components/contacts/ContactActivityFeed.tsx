@@ -392,36 +392,39 @@ function ActivityItem({
 
   const isEmail   = activity.type === "email";
   const isSms     = activity.type === "sms";
+  const isNote    = activity.type === "note";
   const isInbound = activity.direction === "inbound";
 
-  const iconColor  = isEmail ? (isInbound ? "#038153" : "#1D6FA4") : isSms ? "#7C3AED" : "#B45309";
-  const badgeBg    = isEmail ? (isInbound ? "#EAF7F0" : "#E8F2F9") : isSms ? "#F3F0FF" : "#FEF3C7";
-  const badgeText  = isEmail ? (isInbound ? "#038153" : "#1D6FA4") : isSms ? "#7C3AED" : "#B45309";
-  const badgeLabel = isEmail
-    ? (isInbound ? "Received" : "Sent")
+  // Color scheme per type + direction
+  const config = isEmail && isInbound
+    ? { border: "#038153", bg: "#F0FDF6", iconColor: "#038153", badgeBg: "#DCFCE7", badgeText: "#166534", label: "Email received" }
+    : isEmail
+    ? { border: "#1D6FA4", bg: "#EFF6FF", iconColor: "#1D6FA4", badgeBg: "#DBEAFE", badgeText: "#1e40af", label: "Email sent" }
+    : isSms && isInbound
+    ? { border: "#7C3AED", bg: "#F5F3FF", iconColor: "#7C3AED", badgeBg: "#EDE9FE", badgeText: "#5b21b6", label: "SMS received" }
     : isSms
-    ? (isInbound ? "SMS received" : `SMS → ${activity.subject ?? ""}`)
-    : "Internal Note";
+    ? { border: "#9333EA", bg: "#FAF5FF", iconColor: "#9333EA", badgeBg: "#F3E8FF", badgeText: "#7e22ce", label: `SMS → ${activity.subject ?? ""}` }
+    : { border: "#D97706", bg: "#FFFBEB", iconColor: "#D97706", badgeBg: "#FEF3C7", badgeText: "#92400e", label: "Internal note" };
 
   const hasHtml = HTML_TAG_RE.test(activity.body);
   const previewText = hasHtml ? stripHtml(activity.body) : activity.body;
 
   return (
-    <div className={[
-      "group py-4 px-1 rounded-lg",
-      isInbound ? "bg-[#F6FDF9]" : "",
-    ].join(" ")}>
+    <div
+      className="group py-3 px-3 rounded-lg border-l-4 transition-all"
+      style={{ background: config.bg, borderLeftColor: config.border }}
+    >
       <div className="flex gap-3">
         {/* Left icon column */}
         <div className="shrink-0 mt-0.5 flex flex-col items-center gap-1">
           {isEmail
-            ? <Mail size={16} style={{ color: iconColor }} />
+            ? <Mail size={16} style={{ color: config.iconColor }} />
             : isSms
-            ? <MessageSquare size={16} style={{ color: iconColor }} />
-            : <StickyNote size={16} style={{ color: iconColor }} />}
+            ? <MessageSquare size={16} style={{ color: config.iconColor }} />
+            : <StickyNote size={16} style={{ color: config.iconColor }} />}
           {(isEmail || isSms) && (isInbound
-            ? <ArrowDownLeft size={10} style={{ color: iconColor }} />
-            : <ArrowUpRight size={10} style={{ color: iconColor }} />
+            ? <ArrowDownLeft size={10} style={{ color: config.iconColor }} />
+            : <ArrowUpRight size={10} style={{ color: config.iconColor }} />
           )}
         </div>
 
@@ -429,9 +432,9 @@ function ActivityItem({
         <div className="flex-1 min-w-0">
           {/* Header row: badge + timestamp + actions */}
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-              style={{ background: badgeBg, color: badgeText }}>
-              {badgeLabel}
+            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full"
+              style={{ background: config.badgeBg, color: config.badgeText }}>
+              {config.label}
             </span>
             <span className="text-xs text-[#68717A]">{fmtTimestamp(activity.created_at)}</span>
             {/* Action buttons — visible on hover */}
@@ -540,6 +543,7 @@ export default function ContactActivityFeed({ contactId }: Props) {
   const [reloadKey,  setReloadKey]  = useState(0);
   const [syncing,    setSyncing]    = useState(true);
   const [archiving,  setArchiving]  = useState<string | null>(null);
+  const [filter,     setFilter]     = useState<"all" | "email" | "sms" | "note">("all");
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -835,7 +839,9 @@ export default function ContactActivityFeed({ contactId }: Props) {
     }
   };
 
-  const reversed = [...activities].reverse();
+  const reversed = [...activities]
+    .reverse()
+    .filter(a => filter === "all" || a.type === filter);
 
   return (
     <div className="flex flex-col gap-4">
@@ -1052,11 +1058,28 @@ export default function ContactActivityFeed({ contactId }: Props) {
       <div className="bg-white rounded-xl border border-[#D8DCDE] shadow-sm">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#D8DCDE]">
           <span className="text-[11px] font-semibold text-[#68717A] uppercase tracking-wider">Activity</span>
-          {syncing && (
-            <span className="flex items-center gap-1.5 text-xs text-[#68717A]">
-              <RefreshCw size={11} className="animate-spin" /> Syncing inbox...
-            </span>
-          )}
+          <div className="flex items-center gap-1">
+            {syncing && (
+              <span className="flex items-center gap-1.5 text-xs text-[#68717A] mr-2">
+                <RefreshCw size={11} className="animate-spin" /> Syncing...
+              </span>
+            )}
+            {(["all", "email", "sms", "note"] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className="px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors"
+                style={filter === f
+                  ? { background: "#038153", color: "#fff" }
+                  : { color: "#68717A", background: "transparent" }
+                }
+                onMouseEnter={e => { if (filter !== f) (e.currentTarget as HTMLElement).style.background = "#F3F4F6"; }}
+                onMouseLeave={e => { if (filter !== f) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+              >
+                {f === "all" ? "All" : f === "email" ? "Email" : f === "sms" ? "SMS" : "Notes"}
+              </button>
+            ))}
+          </div>
         </div>
         <div className={`px-4 transition-all duration-300 ${syncing ? "blur-sm pointer-events-none select-none" : ""}`}>
           {loading ? (
