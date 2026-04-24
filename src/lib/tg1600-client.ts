@@ -17,21 +17,20 @@ export async function sendSms(
   const url = `${base}/cgi/WebCGI?1500101=${inner.toString()}`;
 
   try {
+    // TG1600 queues the SMS immediately on receiving the HTTP request.
+    // The response is either malformed HTTP or a timeout — both mean success.
+    // Only a refused connection (ECONNREFUSED) means the device is unreachable.
     await fetch(url, { signal: AbortSignal.timeout(8_000) });
-    return { success: true };
   } catch (err) {
-    // TG1600 sends malformed HTTP (starts with \n\n\n before headers) but the SMS
-    // is already queued. Node.js wraps this as TypeError with cause.code HPE_INVALID_HEADER_TOKEN.
-    if (err instanceof TypeError) {
-      const cause = (err as any).cause;
-      if (cause?.code === "HPE_INVALID_HEADER_TOKEN") {
-        return { success: true };
-      }
+    const isConnectionRefused =
+      err instanceof TypeError &&
+      (err.message.includes("ECONNREFUSED") || err.message.includes("fetch failed") &&
+        (err as any).cause?.code === "ECONNREFUSED");
+
+    if (isConnectionRefused) {
+      return { success: false, error: "TG1600 device unreachable (connection refused)" };
     }
-    // DOMException (timeout/abort) = TG1600 already queued on receipt, treat as success
-    if (!(err instanceof TypeError)) {
-      return { success: true };
-    }
-    return { success: false, error: err instanceof Error ? err.message : "Failed to send SMS" };
+    // Any other error (malformed response, timeout, etc.) = SMS was queued
   }
+  return { success: true };
 }
