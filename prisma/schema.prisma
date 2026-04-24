@@ -1,13 +1,306 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
+}
+
+model User {
+  id               String           @id @default(uuid())
+  name             String
+  email            String           @unique
+  created_at       DateTime         @default(now())
+  leads            Lead[]
+  contacts         Contact[]
+  deals            Deal[]
+  deal_notes       DealNote[]
+  calendar_events  CalendarEvent[]
+  sip_account      SipAccount?
+  calls            Call[]
+}
+
+model Source {
+  id               String                 @id @default(uuid())
+  name             String                 @unique
+  created_at       DateTime               @default(now())
+  updated_at       DateTime               @updatedAt
+  attribute_groups SourceAttributeGroup[]
+  leads            Lead[]
+  contacts         Contact[]
+}
+
+model SourceAttributeGroup {
+  id         String                @id @default(uuid())
+  source_id  String
+  source     Source                @relation(fields: [source_id], references: [id], onDelete: Cascade)
+  name       String
+  sort_order Int                   @default(0)
+  items      SourceAttributeItem[]
+}
+
+model SourceAttributeItem {
+  id         String               @id @default(uuid())
+  group_id   String
+  group      SourceAttributeGroup @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  label      String
+  sort_order Int                  @default(0)
+}
+
+model ContactField {
+  id              String               @id @default(uuid())
+  label           String
+  field_key       String               @unique
+  field_type      String
+  sort_order      Int                  @default(0)
+  is_required     Boolean              @default(false)
+  is_active       Boolean              @default(true)
+  is_filterable   Boolean              @default(true)
+  config          String?
+  source_module   String?              // "leads" if imported from another module
+  source_field_id String?              // ID of the source field in that module
+  options         ContactFieldOption[]
+  created_at      DateTime             @default(now())
+}
+
+model ContactFieldOption {
+  id         String       @id @default(uuid())
+  field_id   String
+  field      ContactField @relation(fields: [field_id], references: [id], onDelete: Cascade)
+  label      String
+  value      String
+  sort_order Int          @default(0)
+}
+
+model Contact {
+  id            String            @id @default(uuid())
+  field_values  Json?
+  source_id     String?
+  source        Source?           @relation(fields: [source_id], references: [id])
+  attribute_ids String?           // JSON: selected SourceAttributeItem ids
+  user_id       String
+  user          User              @relation(fields: [user_id], references: [id])
+  created_at    DateTime          @default(now())
+  updated_at    DateTime          @updatedAt
+  activities       ContactActivity[]
+  deals            Deal[]
+  calendar_events  CalendarEvent[]
+}
+
+model ContactActivity {
+  id               String   @id @default(uuid())
+  contact_id       String
+  contact          Contact  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  type             String   // "email" | "note"
+  direction        String   @default("outbound") // "outbound" | "inbound"
+  subject          String?
+  body             String
+  email_message_id String?  @unique // RFC Message-ID, prevents duplicate ingestion
+  deal_id          String?
+  deal             Deal?    @relation(fields: [deal_id], references: [id], onDelete: SetNull)
+  archived         Boolean  @default(false)
+  created_at       DateTime @default(now())
+}
+
+model Lead {
+  id            String   @id @default(uuid())
+  field_values  Json?
+  source_id     String?
+  source        Source?  @relation(fields: [source_id], references: [id])
+  attribute_ids String?
+  user_id       String
+  user          User     @relation(fields: [user_id], references: [id])
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
+
+model LeadField {
+  id            String            @id @default(uuid())
+  label         String
+  field_key     String            @unique
+  field_type    String
+  sort_order    Int               @default(0)
+  is_required   Boolean           @default(false)
+  is_active     Boolean           @default(true)
+  is_filterable Boolean           @default(true)
+  config        String?
+  options       LeadFieldOption[]
+  created_at    DateTime          @default(now())
+}
+
+model LeadFieldOption {
+  id         String    @id @default(uuid())
+  field_id   String
+  field      LeadField @relation(fields: [field_id], references: [id], onDelete: Cascade)
+  label      String
+  value      String
+  sort_order Int       @default(0)
+}
+
+// Stores admin-configured layout of contact fields on the detail page
+// field_key is either a ContactField.field_key or a built-in: "__source__" | "__added_on__"
+model ProfileFieldConfig {
+  id         String   @id @default(uuid())
+  field_key  String   @unique
+  section    String   // "contact_info" | "details"
+  sort_order Int      @default(0)
+  is_visible Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model EmailTemplate {
+  id         String   @id @default(uuid())
+  name       String
+  subject    String?
+  body       String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model EmailSignature {
+  id         String   @id @default(uuid())
+  name       String
+  body       String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model Deal {
+  id           String     @id @default(uuid())
+  contact_id   String
+  contact      Contact    @relation(fields: [contact_id], references: [id])
+  field_values Json?
+  user_id      String
+  user         User       @relation(fields: [user_id], references: [id])
+  created_at   DateTime   @default(now())
+  updated_at   DateTime   @updatedAt
+  notes            DealNote[]
+  calendar_events  CalendarEvent[]
+  activities       ContactActivity[]
+}
+
+model DealField {
+  id              String            @id @default(uuid())
+  label           String
+  field_key       String            @unique
+  field_type      String
+  sort_order      Int               @default(0)
+  is_required     Boolean           @default(false)
+  is_active       Boolean           @default(true)
+  is_filterable   Boolean           @default(true)
+  config          String?
+  source_module   String?
+  source_field_id String?
+  options         DealFieldOption[]
+  created_at      DateTime          @default(now())
+}
+
+model DealFieldOption {
+  id         String    @id @default(uuid())
+  field_id   String
+  field      DealField @relation(fields: [field_id], references: [id], onDelete: Cascade)
+  label      String
+  value      String
+  sort_order Int       @default(0)
+}
+
+model DealNote {
+  id         String   @id @default(uuid())
+  deal_id    String
+  deal       Deal     @relation(fields: [deal_id], references: [id], onDelete: Cascade)
+  user_id    String
+  user       User     @relation(fields: [user_id], references: [id])
+  content    String
+  created_at DateTime @default(now())
+}
+
+model DealProfileConfig {
+  id         String   @id @default(uuid())
+  field_key  String   @unique
+  section    String
+  sort_order Int      @default(0)
+  is_visible Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model CalendarEventTitle {
+  id         String   @id @default(uuid())
+  label      String   @unique
+  sort_order Int      @default(0)
+  created_at DateTime @default(now())
+}
+
+model CalendarEvent {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  start_at    DateTime
+  end_at      DateTime
+  all_day     Boolean  @default(false)
+  color       String   @default("#038153")
+  completed   Boolean  @default(false)
+  user_id     String
+  user        User     @relation(fields: [user_id], references: [id])
+  contact_id  String?
+  contact     Contact? @relation(fields: [contact_id], references: [id], onDelete: SetNull)
+  deal_id     String?
+  deal        Deal?    @relation(fields: [deal_id], references: [id], onDelete: SetNull)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}
+
+model SipAccount {
+  id         String   @id @default(uuid())
+  user_id    String   @unique
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  extension  String   @unique
+  sip_user   String
+  sip_pass   String
+  wss_host   String
+  enabled    Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  calls      Call[]
+
+  @@map("sip_account")
+}
+
+model Call {
+  id             String    @id @default(uuid())
+  unique_id      String    @unique
+  direction      String
+  caller_number  String
+  callee_number  String
+  status         String    @default("ringing")
+  started_at     DateTime  @default(now())
+  answered_at    DateTime?
+  ended_at       DateTime?
+  duration_sec   Int?
+  hangup_cause   String?
+  notes          String?
+  contact_id     String?
+  sip_account_id String?
+  sip_account    SipAccount? @relation(fields: [sip_account_id], references: [id], onDelete: SetNull)
+  user_id        String?
+  user           User?       @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  events         CallEvent[]
+
+  @@index([sip_account_id])
+  @@index([status])
+  @@index([started_at])
+  @@map("call")
+}
+
+model CallEvent {
+  id         String   @id @default(uuid())
+  call_id    String
+  call       Call     @relation(fields: [call_id], references: [id], onDelete: Cascade)
+  event_type String
+  payload    String
+  created_at DateTime @default(now())
+
+  @@index([call_id])
+  @@map("call_event")
 }

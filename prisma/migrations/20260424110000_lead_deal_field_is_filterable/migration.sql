@@ -1,0 +1,2 @@
+ALTER TABLE "LeadField" ADD COLUMN "is_filterable" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "DealField" ADD COLUMN "is_filterable" BOOLEAN NOT NULL DEFAULT true;

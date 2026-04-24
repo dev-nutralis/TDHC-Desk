@@ -1,0 +1,1 @@
+ALTER TABLE "ContactActivity" ADD COLUMN "deal_id" TEXT REFERENCES "Deal"("id") ON DELETE SET NULL;
