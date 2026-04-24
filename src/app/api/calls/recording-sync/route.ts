@@ -28,34 +28,42 @@ async function getToken(): Promise<string> {
   return data.access_token;
 }
 
-async function fetchCdrRecordings(token: string): Promise<{ recording: string; caller: string; callee: string }[]> {
-  // Query CDR for last 10 minutes
-  const now = Math.floor(Date.now() / 1000);
-  const from = now - 10 * 60;
-
-  const url = `https://${YEASTAR_HOST}/openapi/v1.0/call/cdr?access_token=${token}&start_time=${from}&end_time=${now}`;
-
+async function tryEndpoint(url: string): Promise<{ recording: string }[] | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
-    if (!res.ok) {
-      console.log(`[recording-sync] CDR API ${res.status}: ${await res.text()}`);
-      return [];
-    }
+    const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
     const data = await res.json();
-    console.log(`[recording-sync] CDR response: ${JSON.stringify(data).slice(0, 300)}`);
+    console.log(`[recording-sync] ${url.split("?")[0].split("/v1.0/")[1]}: errcode=${data.errcode} keys=${Object.keys(data).join(",")}`);
 
-    const records: any[] = data?.data ?? data?.cdr_list ?? data?.records ?? [];
+    if (data.errcode !== 0) return null;
+
+    const records: any[] = data?.data ?? data?.cdr_list ?? data?.records ?? data?.list ?? [];
     return records
-      .filter((r: any) => r.recording || r.record_file || r.recordfile)
-      .map((r: any) => ({
-        recording: r.recording ?? r.record_file ?? r.recordfile,
-        caller: r.caller ?? r.from ?? "",
-        callee: r.callee ?? r.to ?? "",
-      }));
-  } catch (err) {
-    console.error("[recording-sync] CDR fetch error:", err instanceof Error ? err.message : err);
-    return [];
+      .filter((r: any) => r.recording || r.record_file || r.recordfile || r.file)
+      .map((r: any) => ({ recording: r.recording ?? r.record_file ?? r.recordfile ?? r.file }));
+  } catch {
+    return null;
   }
+}
+
+async function fetchRecordings(token: string): Promise<{ recording: string }[]> {
+  const base = `https://${YEASTAR_HOST}/openapi/v1.0`;
+  const t = `access_token=${token}`;
+
+  // Try known Yeastar P-Series CDR endpoints
+  const attempts = [
+    `${base}/call/cdr?${t}&page=1&pagesize=20`,
+    `${base}/pbx/record?${t}&page=1&pagesize=20`,
+    `${base}/call/record?${t}&page=1&pagesize=20`,
+    `${base}/cdr?${t}&page=1&pagesize=20`,
+  ];
+
+  for (const url of attempts) {
+    const result = await tryEndpoint(url);
+    if (result !== null) return result;
+  }
+
+  console.log("[recording-sync] No working CDR endpoint — check Yeastar API docs");
+  return [];
 }
 
 export async function GET(req: NextRequest) {
@@ -74,14 +82,13 @@ export async function GET(req: NextRequest) {
   let token: string;
   try {
     token = await getToken();
-    console.log("[recording-sync] Token OK, querying CDR...");
   } catch (err) {
     console.error("[recording-sync] Token error:", err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: true, note: "Token failed" });
   }
 
-  const cdrs = await fetchCdrRecordings(token);
-  console.log(`[recording-sync] Found ${cdrs.length} CDRs with recordings`);
+  const cdrs = await fetchRecordings(token);
+  console.log(`[recording-sync] Found ${cdrs.length} recordings`);
 
   let synced = 0;
   for (const cdr of cdrs) {
