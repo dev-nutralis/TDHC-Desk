@@ -396,15 +396,16 @@ function ActivityItem({
   const isInbound = activity.direction === "inbound";
 
   // Color scheme per type + direction
+  // Received = colored background, Sent = white background
   const config = isEmail && isInbound
-    ? { border: "#038153", bg: "#F0FDF6", iconColor: "#038153", badgeBg: "#DCFCE7", badgeText: "#166534", label: "Email received" }
+    ? { border: "#038153", bg: "#DCFCE7", iconColor: "#038153", badgeBg: "#bbf7d0", badgeText: "#14532d", label: "Email received" }
     : isEmail
-    ? { border: "#1D6FA4", bg: "#EFF6FF", iconColor: "#1D6FA4", badgeBg: "#DBEAFE", badgeText: "#1e40af", label: "Email sent" }
+    ? { border: "#1D6FA4", bg: "#ffffff", iconColor: "#1D6FA4", badgeBg: "#DBEAFE", badgeText: "#1e40af", label: "Email sent" }
     : isSms && isInbound
-    ? { border: "#7C3AED", bg: "#F5F3FF", iconColor: "#7C3AED", badgeBg: "#EDE9FE", badgeText: "#5b21b6", label: "SMS received" }
+    ? { border: "#7C3AED", bg: "#EDE9FE", iconColor: "#7C3AED", badgeBg: "#ddd6fe", badgeText: "#4c1d95", label: "SMS received" }
     : isSms
-    ? { border: "#9333EA", bg: "#FAF5FF", iconColor: "#9333EA", badgeBg: "#F3E8FF", badgeText: "#7e22ce", label: `SMS → ${activity.subject ?? ""}` }
-    : { border: "#D97706", bg: "#FFFBEB", iconColor: "#D97706", badgeBg: "#FEF3C7", badgeText: "#92400e", label: "Internal note" };
+    ? { border: "#9333EA", bg: "#ffffff", iconColor: "#9333EA", badgeBg: "#F3E8FF", badgeText: "#7e22ce", label: `SMS → ${activity.subject ?? ""}` }
+    : { border: "#D97706", bg: "#FEF9C3", iconColor: "#D97706", badgeBg: "#FEF3C7", badgeText: "#92400e", label: "Internal note" };
 
   const hasHtml = HTML_TAG_RE.test(activity.body);
   const previewText = hasHtml ? stripHtml(activity.body) : activity.body;
