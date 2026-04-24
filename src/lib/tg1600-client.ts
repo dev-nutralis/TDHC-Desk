@@ -17,7 +17,7 @@ export async function sendSms(
   const url = `${base}/cgi/WebCGI?1500101=${inner.toString()}`;
 
   try {
-    await fetch(url, { signal: AbortSignal.timeout(45_000) });
+    await fetch(url, { signal: AbortSignal.timeout(8_000) });
     return { success: true };
   } catch (err) {
     // TG1600 sends malformed HTTP (starts with \n\n\n before headers) but the SMS
