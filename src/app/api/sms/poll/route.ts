@@ -1,68 +1,119 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import * as net from "net";
 
-const POLL_SECRET = process.env.SMS_POLL_SECRET ?? process.env.SMS_WEBHOOK_SECRET ?? "";
+const TG1600_HOST = process.env.TG1600_TCP_HOST ?? "212.85.174.16";
+const TG1600_AMI_PORT = Number(process.env.TG1600_TCP_PORT ?? "5038");
+const TG1600_USER = process.env.TG1600_API_USER ?? "smsapi";
+const TG1600_PASS = process.env.TG1600_API_PASS ?? "";
+
+const POLL_SECRET = process.env.SMS_WEBHOOK_SECRET ?? "";
+const LISTEN_DURATION_MS = 50_000; // listen for 50s per cron tick
+
+interface SmsEvent {
+  phone: string;
+  content: string;
+  port?: string;
+}
+
+function listenForSms(): Promise<SmsEvent[]> {
+  return new Promise((resolve) => {
+    const messages: SmsEvent[] = [];
+    let buffer = "";
+    const socket = new net.Socket();
+    let done = false;
+
+    function finish() {
+      if (done) return;
+      done = true;
+      try { socket.destroy(); } catch {}
+      resolve(messages);
+    }
+
+    // Stop after LISTEN_DURATION_MS
+    const timer = setTimeout(finish, LISTEN_DURATION_MS);
+
+    socket.connect(TG1600_AMI_PORT, TG1600_HOST, () => {
+      socket.write(`Action: Login\r\nUsername: ${TG1600_USER}\r\nSecret: ${TG1600_PASS}\r\n\r\n`);
+    });
+
+    socket.on("data", (data) => {
+      buffer += data.toString();
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() ?? "";
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        const fields: Record<string, string> = {};
+        for (const line of block.split(/\r?\n/)) {
+          const idx = line.indexOf(":");
+          if (idx > 0) fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+        }
+
+        if (fields.Event !== "ReceivedSMS") continue;
+
+        const phone = fields.Sender ?? "";
+        const content = (fields.Content ?? "").replace(/\+/g, " ").trim();
+        const rawPort = fields.GsmSpan ?? fields.GsmPort ?? fields.Port ?? "";
+        const portNum = parseInt(rawPort, 10);
+        const port = Number.isFinite(portNum) && portNum > 0 ? String(portNum) : "";
+
+        if (phone && content) {
+          messages.push({ phone, content, port });
+          console.log(`[sms/poll] Received SMS from ${phone}: ${content.slice(0, 60)}`);
+        }
+      }
+    });
+
+    socket.on("error", (err) => {
+      console.error("[sms/poll] AMI error:", err.message);
+      clearTimeout(timer);
+      finish();
+    });
+
+    socket.on("close", () => {
+      clearTimeout(timer);
+      finish();
+    });
+  });
+}
 
 export async function GET(req: NextRequest) {
-  // Allow Vercel Cron (no auth header) or manual calls with secret
-  const auth = req.headers.get("authorization") ?? "";
   const userAgent = req.headers.get("user-agent") ?? "";
+  const auth = req.headers.get("authorization") ?? "";
   const isVercelCron = userAgent.includes("vercel-cron");
+
   if (!isVercelCron && POLL_SECRET && auth !== `Bearer ${POLL_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const base = process.env.TG1600_HTTP_URL;
-  const user = process.env.TG1600_API_USER;
-  const pass = process.env.TG1600_API_PASS;
-
-  if (!base || !user || !pass) {
-    return NextResponse.json({ error: "TG1600 not configured" }, { status: 500 });
+  if (!TG1600_PASS) {
+    return NextResponse.json({ error: "TG1600_API_PASS not configured" }, { status: 500 });
   }
 
-  // TG1600 HTTP API — receive SMS (code 1500102)
-  const inner = new URLSearchParams({ account: user, password: pass });
-  const url = `${base}/cgi/WebCGI?1500102=${inner.toString()}`;
-
-  let rawResponse = "";
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
-    rawResponse = await res.text();
-  } catch (err) {
-    // Log timeout but don't fail — device might be slow
-    console.log("[sms/poll] TG1600 fetch error:", err instanceof Error ? err.message : err);
-    return NextResponse.json({ ok: true, synced: 0, note: "TG1600 unreachable" });
-  }
-
-  console.log("[sms/poll] Raw response:", rawResponse.slice(0, 500));
-
-  // Parse TG1600 response — format varies by firmware
-  // Typical format: multiple blocks separated by blank lines
-  // Port: X\nSender: +386...\nContent: message\n
-  const messages = parseTg1600Response(rawResponse);
-  console.log(`[sms/poll] Parsed ${messages.length} messages`);
+  const messages = await listenForSms();
+  console.log(`[sms/poll] Collected ${messages.length} SMS events`);
 
   let synced = 0;
   for (const msg of messages) {
-    if (!msg.sender || !msg.content) continue;
-
-    // Dedup: check if we already have this message (same phone + body + recent)
+    // Dedup: skip if same message received within last 5 minutes
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     const existing = await prisma.contactActivity.findFirst({
       where: {
         type: "sms",
         direction: "inbound",
-        subject: msg.sender,
+        subject: msg.phone,
         body: msg.content,
         created_at: { gte: fiveMinutesAgo },
       },
     });
     if (existing) continue;
 
-    // Find contact by phone number
+    // Find contact by phone number in field_values
+    const normalized = msg.phone.replace(/\D/g, "").slice(-9); // last 9 digits
     const contacts = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM "Contact"
-      WHERE field_values::text ILIKE ${"%" + msg.sender.replace("+", "") + "%"}
+      WHERE field_values::text LIKE ${"%" + normalized + "%"}
       LIMIT 1
     `;
     const contactId = contacts[0]?.id ?? null;
@@ -73,42 +124,16 @@ export async function GET(req: NextRequest) {
           contact_id: contactId,
           type: "sms",
           direction: "inbound",
-          subject: msg.sender,
+          subject: msg.phone,
           body: msg.content,
         },
       });
       synced++;
+      console.log(`[sms/poll] Saved SMS from ${msg.phone} for contact ${contactId}`);
+    } else {
+      console.log(`[sms/poll] No contact found for ${msg.phone}`);
     }
   }
 
   return NextResponse.json({ ok: true, synced, total: messages.length });
-}
-
-function parseTg1600Response(raw: string): { sender: string; content: string; port?: string }[] {
-  const messages: { sender: string; content: string; port?: string }[] = [];
-  if (!raw || raw.toLowerCase().includes("no message")) return messages;
-
-  // Split by blank lines or "---" separators
-  const blocks = raw.split(/\n\s*\n|---+/).filter(b => b.trim());
-
-  for (const block of blocks) {
-    const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    let sender = "";
-    let content = "";
-    let port = "";
-
-    for (const line of lines) {
-      if (line.toLowerCase().startsWith("sender:")) sender = line.slice(7).trim();
-      else if (line.toLowerCase().startsWith("from:")) sender = line.slice(5).trim();
-      else if (line.toLowerCase().startsWith("content:")) content = line.slice(8).trim();
-      else if (line.toLowerCase().startsWith("message:")) content = line.slice(8).trim();
-      else if (line.toLowerCase().startsWith("port:")) port = line.slice(5).trim();
-    }
-
-    if (sender && content) {
-      messages.push({ sender, content: content.replace(/\+/g, " "), port });
-    }
-  }
-
-  return messages;
 }
