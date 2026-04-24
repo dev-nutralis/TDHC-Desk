@@ -20,7 +20,7 @@ export async function GET(
       ext === "ogg" ? "audio/ogg" :
       "audio/wav";
 
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer.buffer as ArrayBuffer, {
       headers: {
         "Content-Type": contentType,
         "Content-Length": String(buffer.length),
