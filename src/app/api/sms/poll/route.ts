@@ -4,9 +4,11 @@ import { prisma } from "@/lib/prisma";
 const POLL_SECRET = process.env.SMS_POLL_SECRET ?? process.env.SMS_WEBHOOK_SECRET ?? "";
 
 export async function GET(req: NextRequest) {
-  // Secure the cron endpoint
+  // Allow Vercel Cron (no auth header) or manual calls with secret
   const auth = req.headers.get("authorization") ?? "";
-  if (POLL_SECRET && auth !== `Bearer ${POLL_SECRET}`) {
+  const userAgent = req.headers.get("user-agent") ?? "";
+  const isVercelCron = userAgent.includes("vercel-cron");
+  if (!isVercelCron && POLL_SECRET && auth !== `Bearer ${POLL_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
