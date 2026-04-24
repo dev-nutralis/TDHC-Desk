@@ -1,10 +1,19 @@
 {
   "regions": ["fra1"],
+  "crons": [
+    {
+      "path": "/api/sms/poll",
+      "schedule": "* * * * *"
+    }
+  ],
   "functions": {
     "src/app/api/contacts/[id]/activities/route.ts": {
       "maxDuration": 15
     },
     "src/app/api/sip-credentials/route.ts": {
+      "maxDuration": 15
+    },
+    "src/app/api/sms/poll/route.ts": {
       "maxDuration": 15
     }
   }
