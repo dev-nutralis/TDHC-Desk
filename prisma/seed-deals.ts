@@ -103,7 +103,7 @@ async function main() {
     }),
   ]);
 
-  console.log("✓ Created 5 contacts:", contacts.map(c => `${c.field_values?.first_name} ${c.field_values?.last_name}`).join(", "));
+  console.log("✓ Created 5 contacts:", contacts.map(c => { const fv = c.field_values as Record<string, unknown> | null; return `${fv?.first_name} ${fv?.last_name}`; }).join(", "));
 
   // ── 5 Deals ────────────────────────────────────────────────────────────────
   const now = new Date().toISOString();
@@ -205,7 +205,7 @@ async function main() {
     }),
   ]);
 
-  console.log("✓ Created 5 deals:", deals.map(d => d.field_values?.deal_name).join(", "));
+  console.log("✓ Created 5 deals:", deals.map(d => (d.field_values as Record<string, unknown> | null)?.deal_name).join(", "));
 }
 
 main().catch(e => { console.error(e); process.exit(1); }).finally(() => prisma.$disconnect());
