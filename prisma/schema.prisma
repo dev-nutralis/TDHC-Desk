@@ -304,3 +304,12 @@ model CallEvent {
   @@index([call_id])
   @@map("call_event")
 }
+
+model YeastarToken {
+  id         String   @id
+  token      String
+  expires_at DateTime
+  updated_at DateTime @updatedAt
+
+  @@map("yeastar_token")
+}
