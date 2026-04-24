@@ -40,6 +40,14 @@ function listenForRecordings(token: string): Promise<CdrEvent[]> {
     const events: CdrEvent[] = [];
     let done = false;
 
+    // Check if WebSocket is available
+    const WS = (globalThis as any).WebSocket;
+    if (!WS) {
+      console.error("[recording-sync] WebSocket not available in this runtime");
+      resolve(events);
+      return;
+    }
+
     function finish() {
       if (done) return;
       done = true;
@@ -49,18 +57,19 @@ function listenForRecordings(token: string): Promise<CdrEvent[]> {
 
     const timer = setTimeout(finish, LISTEN_DURATION_MS);
     const wsUrl = `wss://${YEASTAR_HOST}/openapi/v1.0/subscribe?access_token=${encodeURIComponent(token)}`;
+    console.log(`[recording-sync] Connecting to ${YEASTAR_HOST}...`);
 
-    // Node.js 21+ built-in WebSocket
-    const ws = new (globalThis as any).WebSocket(wsUrl) as WebSocket;
+    const ws = new WS(wsUrl) as WebSocket;
 
     ws.addEventListener("open", () => {
+      console.log("[recording-sync] WS connected, subscribing to 30012...");
       ws.send(JSON.stringify({ topic_list: [30012] }));
-      console.log("[recording-sync] Subscribed to 30012");
     });
 
     ws.addEventListener("message", (event: MessageEvent) => {
       try {
         const envelope = JSON.parse(event.data as string);
+        console.log(`[recording-sync] WS message type=${envelope.type}`);
         if (envelope.type !== 30012) return;
         let msg = envelope.msg;
         if (typeof msg === "string") { try { msg = JSON.parse(msg); } catch {} }
@@ -71,8 +80,17 @@ function listenForRecordings(token: string): Promise<CdrEvent[]> {
       } catch {}
     });
 
-    ws.addEventListener("error", () => { clearTimeout(timer); finish(); });
-    ws.addEventListener("close", () => { clearTimeout(timer); finish(); });
+    ws.addEventListener("error", (e: any) => {
+      console.error("[recording-sync] WS error:", e?.message ?? e);
+      clearTimeout(timer);
+      finish();
+    });
+
+    ws.addEventListener("close", (e: any) => {
+      console.log(`[recording-sync] WS closed code=${e?.code}`);
+      clearTimeout(timer);
+      finish();
+    });
   });
 }
 
