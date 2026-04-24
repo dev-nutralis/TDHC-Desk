@@ -22,6 +22,7 @@ interface ContactField {
   sort_order: number;
   is_required: boolean;
   is_active: boolean;
+  is_filterable: boolean;
   config: string | null;
   source_module: string | null;
   source_field_id: string | null;
