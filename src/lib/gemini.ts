@@ -36,32 +36,36 @@ export async function transcribeCallAudio(audioBuffer: Buffer): Promise<{
 
   const base64Audio = audioBuffer.toString("base64");
 
-  const res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
+  const payload = JSON.stringify({
+    contents: [{
+      parts: [
+        { text: TRANSCRIPTION_PROMPT },
+        { inline_data: { mime_type: "audio/wav", data: base64Audio } },
+      ],
+    }],
+    generationConfig: { response_mime_type: "application/json" },
+  });
+
+  let res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: TRANSCRIPTION_PROMPT },
-            {
-              inline_data: {
-                mime_type: "audio/wav",
-                data: base64Audio,
-              },
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        response_mime_type: "application/json",
-      },
-    }),
+    body: payload,
   });
+
+  // Retry once after 10s on rate limit
+  if (res.status === 429) {
+    console.log("[gemini] 429 rate limit — retrying in 10s");
+    await new Promise(r => setTimeout(r, 10_000));
+    res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+    });
+  }
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${body}`);
+    throw new Error(`Gemini API error ${res.status}: ${body.slice(0, 300)}`);
   }
 
   const data = await res.json();
