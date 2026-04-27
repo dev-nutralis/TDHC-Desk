@@ -6,7 +6,8 @@ import {
   ArrowDownLeft, ArrowUpRight, Type, Image, Link2, Braces,
   Paperclip, X, Check, Bold, Italic, Heading1, Heading2,
   Quote, List, ListOrdered, Pencil, ChevronDown, ChevronUp,
-  Archive, CornerUpLeft, MessageSquare,
+  Archive, CornerUpLeft, MessageSquare, Phone, PhoneIncoming,
+  PhoneMissed, PhoneOff, Clock, Play, Pause,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -19,6 +20,25 @@ interface Activity {
   body: string;
   archived: boolean;
   created_at: string;
+}
+
+interface CallActivity {
+  id: string;
+  direction: string;
+  status: string;
+  caller_number: string;
+  callee_number: string;
+  duration_sec: number | null;
+  started_at: string;
+  ended_at: string | null;
+  recording_id: string | null;
+}
+
+interface FeedItem {
+  _kind: "activity" | "call";
+  _sortDate: string;
+  activity?: Activity;
+  call?: CallActivity;
 }
 
 interface AttachmentFile {
@@ -373,6 +393,145 @@ function LinkTooltip({
   );
 }
 
+// ── Recording player ──────────────────────────────────────────────────────────
+
+function fmtTime(sec: number): string {
+  if (!isFinite(sec) || sec < 0) return "0:00";
+  return `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+}
+
+function RecordingPlayer({ callId }: { callId: string }) {
+  const audioRef    = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef  = useRef<string | null>(null);
+  const [loading,   setLoading]   = useState(false);
+  const [loaded,    setLoaded]    = useState(false);
+  const [playing,   setPlaying]   = useState(false);
+  const [error,     setError]     = useState(false);
+  const [cur,       setCur]       = useState(0);
+  const [dur,       setDur]       = useState(0);
+
+  useEffect(() => () => {
+    audioRef.current?.pause();
+    if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+  }, []);
+
+  async function load() {
+    setLoading(true); setError(false);
+    try {
+      const res = await fetch(`/api/calls/${callId}/recording`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const ab = await res.arrayBuffer();
+      if (ab.byteLength === 0) throw new Error("Empty");
+      const url = URL.createObjectURL(new Blob([ab], { type: "audio/wav" }));
+      blobUrlRef.current = url;
+      const a = new Audio();
+      audioRef.current = a;
+      a.onloadedmetadata = () => setDur(a.duration);
+      a.ontimeupdate     = () => setCur(a.currentTime);
+      a.onended          = () => { setPlaying(false); setCur(0); a.currentTime = 0; };
+      a.onerror          = () => setError(true);
+      a.src = url; a.load();
+      setLoaded(true); setLoading(false);
+      a.play().then(() => setPlaying(true)).catch(() => setError(true));
+    } catch { setError(true); setLoading(false); }
+  }
+
+  async function toggle() {
+    if (!loaded) { await load(); return; }
+    const a = audioRef.current!;
+    if (playing) { a.pause(); setPlaying(false); }
+    else { a.play().then(() => setPlaying(true)).catch(() => {}); }
+  }
+
+  function seek(e: React.MouseEvent<HTMLDivElement>) {
+    const a = audioRef.current; if (!a || !dur) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    a.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * dur;
+    setCur(a.currentTime);
+  }
+
+  if (error) return <span className="text-[10px] text-[#C2C8CC]">No recording</span>;
+
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      <button onClick={toggle}
+        className="w-6 h-6 rounded-full flex items-center justify-center bg-[#038153] hover:bg-[#026b44] text-white shrink-0 transition-colors">
+        {loading ? <Loader2 size={11} className="animate-spin" />
+          : playing ? <Pause size={11} /> : <Play size={11} />}
+      </button>
+      {loaded && (
+        <>
+          <div className="w-24 h-1.5 bg-[#E4E7EB] rounded-full cursor-pointer relative shrink-0" onClick={seek}>
+            <div className="absolute left-0 top-0 h-full bg-[#038153] rounded-full pointer-events-none"
+              style={{ width: `${dur > 0 ? (cur / dur) * 100 : 0}%` }} />
+          </div>
+          <span className="text-[10px] text-[#68717A] tabular-nums shrink-0">
+            {fmtTime(cur)}&nbsp;/&nbsp;{fmtTime(dur)}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Call item ─────────────────────────────────────────────────────────────────
+
+function fmtDuration(sec: number | null): string {
+  if (!sec) return "—";
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m === 0 ? `${s}s` : `${m}m ${s}s`;
+}
+
+function CallItem({ call }: { call: CallActivity }) {
+  const isInbound  = call.direction === "inbound";
+  const isMissed   = call.status === "missed";
+  const isComplete = call.status === "completed";
+  const isFailed   = call.status === "failed";
+
+  const config = isMissed
+    ? { border: "#EF4444", bg: "#FEF2F2", iconColor: "#EF4444", badgeBg: "#FECACA", badgeText: "#991B1B", label: "Missed call" }
+    : isComplete && isInbound
+    ? { border: "#038153", bg: "#DCFCE7", iconColor: "#038153", badgeBg: "#bbf7d0", badgeText: "#14532d", label: "Inbound call" }
+    : isComplete
+    ? { border: "#1D6FA4", bg: "#EFF6FF", iconColor: "#1D6FA4", badgeBg: "#DBEAFE", badgeText: "#1e40af", label: "Outbound call" }
+    : { border: "#9CA3AF", bg: "#F9FAFB", iconColor: "#9CA3AF", badgeBg: "#F3F4F6", badgeText: "#6B7280", label: "Failed call" };
+
+  const number = isInbound ? call.caller_number : call.callee_number;
+  const Icon = isMissed ? PhoneMissed : isFailed ? PhoneOff : isInbound ? PhoneIncoming : Phone;
+
+  return (
+    <div className="group py-3 px-3 rounded-lg border-l-4 transition-all"
+      style={{ background: config.bg, borderLeftColor: config.border }}>
+      <div className="flex gap-3">
+        <div className="shrink-0 mt-0.5 flex flex-col items-center gap-1">
+          <Icon size={16} style={{ color: config.iconColor }} />
+          {!isMissed && !isFailed && (
+            isInbound
+              ? <ArrowDownLeft size={10} style={{ color: config.iconColor }} />
+              : <ArrowUpRight  size={10} style={{ color: config.iconColor }} />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full"
+              style={{ background: config.badgeBg, color: config.badgeText }}>
+              {config.label}
+            </span>
+            <span className="text-xs text-[#68717A]">{fmtTimestamp(call.started_at)}</span>
+          </div>
+          <p className="text-sm font-medium text-[#2F3941]">{number || "Unknown"}</p>
+          {isComplete && (
+            <p className="text-xs text-[#68717A] flex items-center gap-1 mt-0.5">
+              <Clock size={10} /> {fmtDuration(call.duration_sec)}
+            </p>
+          )}
+          {call.recording_id && <RecordingPlayer callId={call.id} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Activity item ─────────────────────────────────────────────────────────────
 
 const HTML_TAG_RE = /<[a-z][\s\S]*?>/i;
@@ -539,16 +698,17 @@ export default function ContactActivityFeed({ contactId }: Props) {
 
   // Feed state
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [calls,      setCalls]      = useState<CallActivity[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [reloadKey,  setReloadKey]  = useState(0);
   const [syncing,    setSyncing]    = useState(true);
   const [archiving,  setArchiving]  = useState<string | null>(null);
-  const [filter,     setFilter]     = useState<"all" | "email" | "sms" | "note">("all");
+  const [filter,     setFilter]     = useState<"all" | "email" | "sms" | "note" | "call">("all");
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
-  // Fetch activities
+  // Fetch activities + calls
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -556,9 +716,15 @@ export default function ContactActivityFeed({ contactId }: Props) {
     fetch(`/api/contacts/${contactId}/activities`)
       .then(async (res) => {
         if (!res.ok) throw new Error((await res.json()).error ?? "Failed to load");
-        return res.json() as Promise<Activity[]>;
+        return res.json() as Promise<{ activities: Activity[]; calls: CallActivity[] }>;
       })
-      .then((data) => { if (!cancelled) { setActivities(data); setLoading(false); } })
+      .then((data) => {
+        if (!cancelled) {
+          setActivities(data.activities ?? []);
+          setCalls(data.calls ?? []);
+          setLoading(false);
+        }
+      })
       .catch((err: unknown) => {
         if (!cancelled) { setFetchError(err instanceof Error ? err.message : "Failed to load"); setLoading(false); }
       });
@@ -840,9 +1006,15 @@ export default function ContactActivityFeed({ contactId }: Props) {
     }
   };
 
-  const reversed = [...activities]
-    .reverse()
-    .filter(a => filter === "all" || a.type === filter);
+  // Merge activities + calls into a single sorted feed
+  const feedItems: FeedItem[] = [
+    ...activities
+      .filter(a => filter === "all" || filter === a.type)
+      .map(a => ({ _kind: "activity" as const, _sortDate: a.created_at, activity: a })),
+    ...calls
+      .filter(() => filter === "all" || filter === "call")
+      .map(c => ({ _kind: "call" as const, _sortDate: c.started_at, call: c })),
+  ].sort((a, b) => new Date(b._sortDate).getTime() - new Date(a._sortDate).getTime());
 
   return (
     <div className="flex flex-col gap-4">
@@ -1065,7 +1237,7 @@ export default function ContactActivityFeed({ contactId }: Props) {
                 <RefreshCw size={11} className="animate-spin" /> Syncing...
               </span>
             )}
-            {(["all", "email", "sms", "note"] as const).map(f => (
+            {(["all", "email", "sms", "note", "call"] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -1077,7 +1249,7 @@ export default function ContactActivityFeed({ contactId }: Props) {
                 onMouseEnter={e => { if (filter !== f) (e.currentTarget as HTMLElement).style.background = "#F3F4F6"; }}
                 onMouseLeave={e => { if (filter !== f) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
               >
-                {f === "all" ? "All" : f === "email" ? "Email" : f === "sms" ? "SMS" : "Notes"}
+                {f === "all" ? "All" : f === "email" ? "Email" : f === "sms" ? "SMS" : f === "note" ? "Notes" : "Calls"}
               </button>
             ))}
           </div>
@@ -1089,19 +1261,23 @@ export default function ContactActivityFeed({ contactId }: Props) {
             </div>
           ) : fetchError ? (
             <div className="py-10 text-center"><p className="text-sm text-[#CC3340]">{fetchError}</p></div>
-          ) : reversed.length === 0 ? (
+          ) : feedItems.length === 0 ? (
             <div className="py-10 text-center"><p className="text-sm text-[#C2C8CC]">No activity yet</p></div>
           ) : (
             <div className="divide-y divide-[#D8DCDE]">
-              {reversed.map((activity) => (
-                <ActivityItem
-                  key={activity.id}
-                  activity={activity}
-                  archiving={archiving === activity.id}
-                  onArchive={() => handleArchive(activity.id)}
-                  onReply={() => handleReply(activity)}
-                />
-              ))}
+              {feedItems.map((item) =>
+                item._kind === "call" ? (
+                  <CallItem key={`call-${item.call!.id}`} call={item.call!} />
+                ) : (
+                  <ActivityItem
+                    key={item.activity!.id}
+                    activity={item.activity!}
+                    archiving={archiving === item.activity!.id}
+                    onArchive={() => handleArchive(item.activity!.id)}
+                    onReply={() => handleReply(item.activity!)}
+                  />
+                )
+              )}
             </div>
           )}
         </div>

@@ -6,11 +6,28 @@ import { sendSms } from "@/lib/tg1600-client";
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const activities = await prisma.contactActivity.findMany({
-      where: { contact_id: id },
-      orderBy: { created_at: "asc" },
-    });
-    return NextResponse.json(activities);
+    const [activities, calls] = await Promise.all([
+      prisma.contactActivity.findMany({
+        where: { contact_id: id },
+        orderBy: { created_at: "asc" },
+      }),
+      prisma.call.findMany({
+        where: { contact_id: id },
+        orderBy: { started_at: "asc" },
+        select: {
+          id: true,
+          direction: true,
+          status: true,
+          caller_number: true,
+          callee_number: true,
+          duration_sec: true,
+          started_at: true,
+          ended_at: true,
+          recording_id: true,
+        },
+      }),
+    ]);
+    return NextResponse.json({ activities, calls });
   } catch (err) {
     console.error("[GET /api/contacts/:id/activities]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
