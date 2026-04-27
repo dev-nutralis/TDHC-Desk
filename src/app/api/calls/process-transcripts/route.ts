@@ -17,7 +17,7 @@ export async function GET() {
   const pending = await prisma.call.findMany({
     where: { transcript_status: "pending" },
     take: 2,
-    orderBy: { created_at: "asc" },
+    orderBy: { started_at: "asc" },
   });
 
   let processed = 0;
