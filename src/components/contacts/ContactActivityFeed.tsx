@@ -32,6 +32,16 @@ interface CallActivity {
   started_at: string;
   ended_at: string | null;
   recording_id: string | null;
+  transcript: string | null;
+  summary: string | null;
+  transcript_status: string | null;
+}
+
+interface CallSummary {
+  outcome?: string;
+  followUps?: string[];
+  sentiment?: string;
+  topics?: string[];
 }
 
 interface FeedItem {
@@ -483,6 +493,9 @@ function fmtDuration(sec: number | null): string {
 }
 
 function CallItem({ call }: { call: CallActivity }) {
+  const [summaryOpen,    setSummaryOpen]    = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+
   const isInbound  = call.direction === "inbound";
   const isMissed   = call.status === "missed";
   const isComplete = call.status === "completed";
@@ -526,6 +539,82 @@ function CallItem({ call }: { call: CallActivity }) {
             </p>
           )}
           {call.recording_id && <RecordingPlayer callId={call.id} />}
+
+          {call.recording_id && (() => {
+            const ts = call.transcript_status;
+            if (ts === "pending" || ts === "processing") {
+              return (
+                <div className="flex items-center gap-1.5 mt-2 text-[11px] text-[#68717A]">
+                  <Loader2 size={11} className="animate-spin text-[#038153]" />
+                  Processing transcript...
+                </div>
+              );
+            }
+            if (ts === "done") {
+              let summary: CallSummary | null = null;
+              try { if (call.summary) summary = JSON.parse(call.summary); } catch { /* ignore */ }
+              return (
+                <div className="mt-2 space-y-1">
+                  <button
+                    onClick={() => setSummaryOpen((v) => !v)}
+                    className="flex items-center gap-1 text-[11px] text-[#68717A] hover:text-[#038153] transition-colors"
+                  >
+                    <ChevronDown size={11} className={summaryOpen ? "rotate-180 transition-transform" : "transition-transform"} />
+                    Summary
+                  </button>
+                  {summaryOpen && summary && (
+                    <div className="rounded-md bg-white border border-[#E4E7EB] p-2 space-y-1.5">
+                      {summary.outcome && (
+                        <p className="text-xs font-semibold text-[#2F3941]">{summary.outcome}</p>
+                      )}
+                      {summary.sentiment && (
+                        <span className={[
+                          "text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize",
+                          summary.sentiment.toLowerCase() === "positive" ? "bg-[#DCFCE7] text-[#14532d]" :
+                          summary.sentiment.toLowerCase() === "negative" ? "bg-[#FEE2E2] text-[#991b1b]" :
+                          "bg-[#F3F4F6] text-[#374151]"
+                        ].join(" ")}>
+                          {summary.sentiment}
+                        </span>
+                      )}
+                      {summary.followUps && summary.followUps.length > 0 && (
+                        <ul className="space-y-0.5">
+                          {summary.followUps.map((fu, i) => (
+                            <li key={i} className="flex gap-1.5 text-[11px] text-[#2F3941]">
+                              <span className="text-[#038153] shrink-0">•</span>{fu}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {summary.topics && summary.topics.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {summary.topics.map((t, i) => (
+                            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#F3F4F6] text-[#68717A] border border-[#E4E7EB]">{t}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setTranscriptOpen((v) => !v)}
+                    className="flex items-center gap-1 text-[11px] text-[#68717A] hover:text-[#038153] transition-colors"
+                  >
+                    <ChevronDown size={11} className={transcriptOpen ? "rotate-180 transition-transform" : "transition-transform"} />
+                    Transcript
+                  </button>
+                  {transcriptOpen && (
+                    <div className="max-h-[200px] overflow-y-auto rounded-md bg-white border border-[#E4E7EB] p-2">
+                      <p className="text-[11px] font-mono whitespace-pre-wrap text-[#2F3941] leading-relaxed">
+                        {call.transcript || "No transcript text"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
       </div>
     </div>

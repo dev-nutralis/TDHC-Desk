@@ -280,8 +280,11 @@ model Call {
   duration_sec   Int?
   hangup_cause   String?
   notes          String?
-  recording_id   String?
-  contact_id     String?
+  recording_id       String?
+  transcript         String?
+  summary            String?
+  transcript_status  String?
+  contact_id         String?
   sip_account_id String?
   sip_account    SipAccount? @relation(fields: [sip_account_id], references: [id], onDelete: SetNull)
   user_id        String?

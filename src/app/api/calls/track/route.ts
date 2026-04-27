@@ -66,7 +66,7 @@ async function fetchRecordingForCall(callId: string): Promise<void> {
     if (recording) {
       await prisma.call.update({
         where: { id: callId },
-        data: { recording_id: recording },
+        data: { recording_id: recording, transcript_status: "pending" },
       });
       console.log(`[calls/track] Recording saved: ${recording} → ${callId}`);
     }

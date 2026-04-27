@@ -52,6 +52,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           started_at: true,
           ended_at: true,
           recording_id: true,
+          transcript: true,
+          summary: true,
+          transcript_status: true,
         },
       }),
     ]);
