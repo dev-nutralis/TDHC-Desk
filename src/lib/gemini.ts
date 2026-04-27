@@ -1,5 +1,4 @@
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
 const TRANSCRIPTION_PROMPT = `You are analyzing a phone sales call recording. The call may be in any language — detect it automatically.
 Provide your response as JSON with exactly this structure:
@@ -23,9 +22,21 @@ export async function transcribeCallAudio(audioBuffer: Buffer): Promise<{
     topics: string[];
   };
 }> {
+  const apiKey = process.env.GEMINI_API_KEY ?? "";
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+
+  // Validate audio — reject if it looks like a JSON error response from Yeastar
+  if (audioBuffer.length < 100) {
+    throw new Error(`Audio buffer too small (${audioBuffer.length} bytes) — likely a Yeastar API error`);
+  }
+  const magic = audioBuffer.slice(0, 4).toString("ascii");
+  if (magic !== "RIFF") {
+    throw new Error(`Audio is not a WAV file (got: ${magic}) — Yeastar may have returned an error`);
+  }
+
   const base64Audio = audioBuffer.toString("base64");
 
-  const res = await fetch(GEMINI_URL, {
+  const res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
