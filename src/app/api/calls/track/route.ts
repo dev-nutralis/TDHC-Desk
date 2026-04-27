@@ -1,6 +1,79 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { randomUUID } from "crypto";
+import { waitUntil } from "@vercel/functions";
+
+const YEASTAR_HOST = process.env.YEASTAR_HOST ?? "";
+const CLIENT_ID = process.env.YEASTAR_CLIENT_ID ?? "";
+const CLIENT_SECRET = process.env.YEASTAR_CLIENT_SECRET ?? "";
+
+async function fetchRecordingForCall(callId: string): Promise<void> {
+  if (!YEASTAR_HOST || !CLIENT_ID || !CLIENT_SECRET) return;
+
+  try {
+    // Wait for Yeastar to finalize the recording
+    await new Promise(r => setTimeout(r, 5_000));
+
+    // Get token
+    const cached = await prisma.yeastarToken.findUnique({ where: { id: "general" } });
+    let token = cached?.token ?? "";
+    if (!token || (cached && cached.expires_at.getTime() < Date.now() + 60_000)) {
+      const res = await fetch(`https://${YEASTAR_HOST}/openapi/v1.0/get_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: CLIENT_ID, password: CLIENT_SECRET }),
+      });
+      const data = await res.json();
+      if (data.access_token) {
+        token = data.access_token;
+        const expiresAt = Date.now() + (data.access_token_expire_time ?? 1800) * 1000;
+        await prisma.yeastarToken.upsert({
+          where: { id: "general" },
+          create: { id: "general", token, expires_at: new Date(expiresAt) },
+          update: { token, expires_at: new Date(expiresAt) },
+        });
+      }
+    }
+    if (!token) return;
+
+    // Listen for 30012 CDR event via WebSocket
+    const { default: WebSocket } = await import("ws");
+    const recording = await new Promise<string | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 30_000);
+      const wsUrl = `wss://${YEASTAR_HOST}/openapi/v1.0/subscribe?access_token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.on("open", () => ws.send(JSON.stringify({ topic_list: [30012] })));
+
+      ws.on("message", (data) => {
+        try {
+          const envelope = JSON.parse(data.toString());
+          if (envelope.type !== 30012) return;
+          let msg = envelope.msg;
+          if (typeof msg === "string") { try { msg = JSON.parse(msg); } catch {} }
+          if (msg?.recording) {
+            clearTimeout(timer);
+            ws.terminate();
+            resolve(msg.recording);
+          }
+        } catch {}
+      });
+
+      ws.on("error", () => { clearTimeout(timer); resolve(null); });
+      ws.on("close", () => { clearTimeout(timer); resolve(null); });
+    });
+
+    if (recording) {
+      await prisma.call.update({
+        where: { id: callId },
+        data: { recording_id: recording },
+      });
+      console.log(`[calls/track] Recording saved: ${recording} → ${callId}`);
+    }
+  } catch (err) {
+    console.error("[calls/track] recording fetch error:", err instanceof Error ? err.message : err);
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -55,6 +128,12 @@ export async function POST(req: NextRequest) {
         where: { id: callId },
         data: { status, ended_at: now, duration_sec: durationSec },
       });
+
+      // Kick off recording fetch in background (non-blocking)
+      if (status === "completed" && durationSec && durationSec > 5) {
+        waitUntil(fetchRecordingForCall(callId));
+      }
+
       return NextResponse.json({ ok: true });
     }
 
