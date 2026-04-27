@@ -72,18 +72,42 @@ export async function getYeastarSignCredentials(sipUser: string): Promise<{ sign
 }
 
 export async function downloadRecording(filename: string): Promise<Buffer> {
-  const token = await getLinkusToken();
+  const token = await getToken(CLIENT_ID, CLIENT_SECRET, "general");
+
   const urlRes = await fetch(
     `https://${YEASTAR_HOST}/openapi/v1.0/recording/download?file=${encodeURIComponent(filename)}&access_token=${token}`,
   );
   if (!urlRes.ok) throw new Error(`Yeastar recording URL error: ${urlRes.status}`);
   const data = await urlRes.json();
-  const downloadUrl: string = data?.download_resource_url ?? data?.url ?? "";
+
+  console.log("[yeastar] recording/download response:", JSON.stringify(data));
+
+  let downloadUrl: string = data?.download_resource_url ?? data?.url ?? data?.data?.download_resource_url ?? "";
+
   if (!downloadUrl) throw new Error(`No download URL in response: ${JSON.stringify(data)}`);
 
-  const audioRes = await fetch(downloadUrl);
-  if (!audioRes.ok) throw new Error(`Recording download error: ${audioRes.status}`);
-  return Buffer.from(await audioRes.arrayBuffer());
+  // Handle relative URLs returned by Yeastar
+  if (downloadUrl.startsWith("/")) {
+    downloadUrl = `https://${YEASTAR_HOST}${downloadUrl}`;
+  }
+
+  // Yeastar sometimes returns a URL that already has the token, sometimes not
+  // Try without extra token first, then with token appended
+  const urlsToTry = [
+    downloadUrl,
+    downloadUrl.includes("access_token=")
+      ? downloadUrl
+      : `${downloadUrl}${downloadUrl.includes("?") ? "&" : "?"}access_token=${token}`,
+  ];
+
+  for (const url of urlsToTry) {
+    console.log("[yeastar] fetching audio from:", url);
+    const audioRes = await fetch(url, { headers: { "User-Agent": "TDHCDesk/1.0" } });
+    console.log("[yeastar] audio fetch status:", audioRes.status, audioRes.statusText);
+    if (audioRes.ok) return Buffer.from(await audioRes.arrayBuffer());
+  }
+
+  throw new Error(`Recording audio download failed for file: ${filename}`);
 }
 
 export function isYeastarConfigured(): boolean {
