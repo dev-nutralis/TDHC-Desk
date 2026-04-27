@@ -128,23 +128,25 @@ export default function Sidebar() {
         <button
           onClick={() => setDropdownOpen(prev => !prev)}
           className={cn(
-            "w-full h-14 flex items-center transition-colors hover:bg-white/5",
-            collapsed ? "justify-center px-0" : "px-4 gap-2.5"
+            "w-full flex items-center justify-center transition-colors hover:bg-white/5",
+            collapsed ? "h-14 px-0" : "flex-col gap-1.5 py-3 px-4"
           )}
         >
-          <div className="shrink-0">
+          {collapsed ? (
             <PlatformLogo platform={currentPlatform} size={28} />
-          </div>
-          {!collapsed && (
+          ) : (
             <>
-              <span className="text-white text-sm font-semibold leading-tight truncate flex-1 text-left">
-                {currentPlatform?.name ?? platform}
-              </span>
-              <ChevronDown
-                size={13}
-                strokeWidth={2}
-                className={cn("shrink-0 text-white/50 transition-transform", dropdownOpen && "rotate-180")}
-              />
+              <PlatformLogo platform={currentPlatform} size={36} />
+              <div className="flex items-center gap-1">
+                <span className="text-white text-[13px] font-semibold leading-tight truncate max-w-[150px]">
+                  {currentPlatform?.name ?? platform}
+                </span>
+                <ChevronDown
+                  size={12}
+                  strokeWidth={2}
+                  className={cn("shrink-0 text-white/50 transition-transform", dropdownOpen && "rotate-180")}
+                />
+              </div>
             </>
           )}
         </button>
