@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
-import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone, Building2 } from "lucide-react";
+import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone, Building2, ShieldCheck } from "lucide-react";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -15,7 +15,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
     { href: `/${platform}/settings/deals`,    label: "Deals",    icon: Briefcase },
     { href: `/${platform}/settings/emails`,   label: "Emails",   icon: Mail },
     { href: `/${platform}/settings/sip`,      label: "SIP Phone", icon: Phone },
-    { href: `/${platform}/settings/platforms`, label: "Platforms", icon: Building2 },
+    { href: `/${platform}/settings/platforms`, label: "Platform", icon: Building2 },
+    { href: `/${platform}/settings/admins`,   label: "Admins",   icon: ShieldCheck },
   ];
 
   const preferencesTabs = [

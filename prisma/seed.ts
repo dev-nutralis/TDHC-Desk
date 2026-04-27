@@ -13,7 +13,7 @@ async function main() {
   const user = await prisma.user.upsert({
     where: { email: "admin@tdhc.com" },
     update: {},
-    create: { name: "Admin", email: "admin@tdhc.com" },
+    create: { first_name: "Admin", last_name: "User", email: "admin@tdhc.com", password_hash: "", role: "admin" },
   });
 
   const websiteExisting = await prisma.source.findFirst({ where: { name: "Website" } });

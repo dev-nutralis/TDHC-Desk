@@ -6,7 +6,7 @@ import { usePathname, useParams, useRouter } from "next/navigation";
 import {
   Users, Briefcase, Settings,
   Contact2, Phone, ChevronLeft, ChevronRight, CalendarDays, Inbox, CheckSquare,
-  ChevronDown, Check, Building2,
+  ChevronDown, Check, Building2, LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -35,30 +35,6 @@ interface Platform {
   id: string;
   name: string;
   slug: string;
-  logo_url: string | null;
-}
-
-function PlatformLogo({ platform, size = 28 }: { platform: Platform | null; size?: number }) {
-  if (platform?.logo_url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={platform.logo_url}
-        alt={platform.name}
-        style={{ width: size, height: size }}
-        className="rounded-md object-contain bg-white"
-      />
-    );
-  }
-  const letter = platform ? platform.name.charAt(0).toUpperCase() : "?";
-  return (
-    <div
-      style={{ width: size, height: size }}
-      className="rounded-md bg-[#038153] flex items-center justify-center shrink-0"
-    >
-      <span className="text-white text-xs font-bold leading-none">{letter}</span>
-    </div>
-  );
 }
 
 export default function Sidebar() {
@@ -71,6 +47,11 @@ export default function Sidebar() {
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
 
   useEffect(() => {
     try {
@@ -85,7 +66,6 @@ export default function Sidebar() {
       .then(data => setPlatforms(data.platforms ?? []));
   }, []);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -110,6 +90,7 @@ export default function Sidebar() {
   }
 
   const currentPlatform = platforms.find(p => p.slug === platform) ?? null;
+  const displayName = currentPlatform?.name ?? platform;
 
   return (
     <aside
@@ -128,25 +109,24 @@ export default function Sidebar() {
         <button
           onClick={() => setDropdownOpen(prev => !prev)}
           className={cn(
-            "w-full flex items-center justify-center transition-colors hover:bg-white/5",
-            collapsed ? "h-14 px-0" : "flex-col gap-1.5 py-3 px-4"
+            "w-full h-14 flex items-center transition-colors hover:bg-white/5",
+            collapsed ? "justify-center px-0" : "px-4 gap-2"
           )}
         >
           {collapsed ? (
-            <PlatformLogo platform={currentPlatform} size={28} />
+            <span className="text-white text-sm font-bold">
+              {displayName.charAt(0).toUpperCase()}
+            </span>
           ) : (
             <>
-              <PlatformLogo platform={currentPlatform} size={36} />
-              <div className="flex items-center gap-1">
-                <span className="text-white text-[13px] font-semibold leading-tight truncate max-w-[150px]">
-                  {currentPlatform?.name ?? platform}
-                </span>
-                <ChevronDown
-                  size={12}
-                  strokeWidth={2}
-                  className={cn("shrink-0 text-white/50 transition-transform", dropdownOpen && "rotate-180")}
-                />
-              </div>
+              <span className="text-white text-[15px] font-bold leading-tight truncate flex-1 text-left">
+                {displayName}
+              </span>
+              <ChevronDown
+                size={13}
+                strokeWidth={2}
+                className={cn("shrink-0 text-white/50 transition-transform", dropdownOpen && "rotate-180")}
+              />
             </>
           )}
         </button>
@@ -163,7 +143,6 @@ export default function Sidebar() {
                 onClick={() => switchPlatform(p.slug)}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/10 transition-colors text-left"
               >
-                <PlatformLogo platform={p} size={22} />
                 <span
                   className="flex-1 text-sm font-medium truncate"
                   style={{ color: p.slug === platform ? "white" : "var(--zd-sidebar-text)" }}
@@ -247,7 +226,7 @@ export default function Sidebar() {
       <div className="p-3" style={{ borderTop: "1px solid var(--zd-sidebar-border)" }}>
         <div
           className={cn(
-            "flex items-center py-1.5 rounded-md cursor-pointer",
+            "flex items-center py-1.5 rounded-md",
             collapsed ? "justify-center px-0" : "gap-2.5 px-2"
           )}
           style={{ color: "var(--zd-sidebar-text)" }}
@@ -256,12 +235,18 @@ export default function Sidebar() {
             <span className="text-white text-xs font-semibold">A</span>
           </div>
           {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-[12px] font-medium text-white truncate">Admin</p>
-              <p className="text-[10px] truncate" style={{ color: "var(--zd-sidebar-text)" }}>
-                admin@tdhc.com
-              </p>
-            </div>
+            <>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-medium text-white truncate">Admin</p>
+              </div>
+              <button
+                onClick={handleLogout}
+                title="Sign out"
+                className="w-6 h-6 flex items-center justify-center rounded text-white/40 hover:text-white transition-colors"
+              >
+                <LogOut size={13} />
+              </button>
+            </>
           )}
         </div>
       </div>

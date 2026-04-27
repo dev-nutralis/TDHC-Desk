@@ -30,7 +30,6 @@ interface Platform {
 
 interface FormState {
   name: string;
-  logo_url: string;
   website_url: string;
   transcription_language: string;
 }
@@ -41,7 +40,7 @@ export default function CurrentPlatformSettings() {
 
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState<FormState>({ name: "", logo_url: "", website_url: "", transcription_language: "" });
+  const [form, setForm] = useState<FormState>({ name: "", website_url: "", transcription_language: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -57,7 +56,6 @@ export default function CurrentPlatformSettings() {
           setPlatform(found);
           setForm({
             name: found.name,
-            logo_url: found.logo_url ?? "",
             website_url: found.website_url ?? "",
             transcription_language: found.transcription_language ?? "",
           });
@@ -78,7 +76,6 @@ export default function CurrentPlatformSettings() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: form.name,
-        logo_url: form.logo_url || null,
         website_url: form.website_url || null,
         transcription_language: form.transcription_language || null,
       }),
@@ -143,18 +140,6 @@ export default function CurrentPlatformSettings() {
           className="w-full h-9 px-3 text-sm rounded-md border border-[#D8DCDE] bg-[#F8F9F9] text-[#68717A] cursor-not-allowed"
         />
         <p className="text-[11px] text-[#68717A]">Slug cannot be changed after creation.</p>
-      </div>
-
-      {/* Logo URL */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold text-[#2F3941]">Logo URL</label>
-        <input
-          type="url"
-          value={form.logo_url}
-          onChange={e => setForm(prev => ({ ...prev, logo_url: e.target.value }))}
-          placeholder="https://example.com/logo.png"
-          className="w-full h-9 px-3 text-sm rounded-md border border-[#D8DCDE] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] text-[#2F3941] placeholder:text-[#C2C8CC]"
-        />
       </div>
 
       {/* Website URL */}
