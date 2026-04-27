@@ -79,7 +79,7 @@ function buildFilterClauses(filterConditions: FilterCondition[]): { clauses: str
 
 const includeContact = {
   contact: { select: { id: true, field_values: true } },
-  user: { select: { id: true, name: true } },
+  user: { select: { id: true, first_name: true, last_name: true } },
 };
 
 export async function GET(req: NextRequest) {

@@ -6,7 +6,7 @@ import { syncDealValuesToContact } from "@/lib/sync-field-values";
 
 const includeContact = {
   contact: { select: { id: true, field_values: true } },
-  user: { select: { id: true, name: true } },
+  user: { select: { id: true, first_name: true, last_name: true } },
 };
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

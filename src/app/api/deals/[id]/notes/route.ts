@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const notes = await prisma.dealNote.findMany({
     where: { deal_id: id },
-    include: { user: { select: { id: true, name: true } } },
+    include: { user: { select: { id: true, first_name: true, last_name: true } } },
     orderBy: { created_at: "desc" },
   });
   return NextResponse.json(notes);
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const note = await prisma.dealNote.create({
     data: { deal_id: id, user_id, content: content.trim() },
-    include: { user: { select: { id: true, name: true } } },
+    include: { user: { select: { id: true, first_name: true, last_name: true } } },
   });
   return NextResponse.json(note, { status: 201 });
 }
