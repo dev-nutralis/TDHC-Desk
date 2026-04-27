@@ -1,6 +1,11 @@
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
 
-const TRANSCRIPTION_PROMPT = `You are analyzing a phone sales call recording. The call may be in any language — detect it automatically.
+function buildPrompt(language: string | null): string {
+  const langInstruction = language
+    ? `The call is in ${language}. Transcribe in that language.`
+    : `The call may be in any language — detect it automatically.`;
+
+  return `You are analyzing a phone sales call recording. ${langInstruction}
 Provide your response as JSON with exactly this structure:
 {
   "transcript": "Full verbatim transcript with speaker labels. Format each line as 'Agent: ...' or 'Customer: ...'",
@@ -12,8 +17,9 @@ Provide your response as JSON with exactly this structure:
   }
 }
 Return ONLY valid JSON, no markdown, no explanation.`;
+}
 
-export async function transcribeCallAudio(audioBuffer: Buffer): Promise<{
+export async function transcribeCallAudio(audioBuffer: Buffer, language?: string | null): Promise<{
   transcript: string;
   summary: {
     outcome: string;
@@ -39,7 +45,7 @@ export async function transcribeCallAudio(audioBuffer: Buffer): Promise<{
   const payload = JSON.stringify({
     contents: [{
       parts: [
-        { text: TRANSCRIPTION_PROMPT },
+        { text: buildPrompt(language ?? null) },
         { inline_data: { mime_type: "audio/wav", data: base64Audio } },
       ],
     }],

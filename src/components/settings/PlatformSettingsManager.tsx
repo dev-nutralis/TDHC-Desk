@@ -6,12 +6,28 @@ import {
   Plus, Pencil, Loader2, X, Globe, Building2, ExternalLink, AlertTriangle,
 } from "lucide-react";
 
+const LANGUAGES = [
+  { value: "", label: "Auto-detect" },
+  { value: "Slovenian", label: "Slovenian (sl)" },
+  { value: "Serbian", label: "Serbian (sr)" },
+  { value: "Croatian", label: "Croatian (hr)" },
+  { value: "Bosnian", label: "Bosnian (bs)" },
+  { value: "English", label: "English (en)" },
+  { value: "German", label: "German (de)" },
+  { value: "Italian", label: "Italian (it)" },
+  { value: "French", label: "French (fr)" },
+  { value: "Spanish", label: "Spanish (es)" },
+  { value: "Hungarian", label: "Hungarian (hu)" },
+  { value: "Romanian", label: "Romanian (ro)" },
+];
+
 interface Platform {
   id: string;
   name: string;
   slug: string;
   logo_url: string | null;
   website_url: string | null;
+  transcription_language: string | null;
   created_at: string;
 }
 
@@ -20,9 +36,10 @@ interface FormState {
   slug: string;
   logo_url: string;
   website_url: string;
+  transcription_language: string;
 }
 
-const EMPTY_FORM: FormState = { name: "", slug: "", logo_url: "", website_url: "" };
+const EMPTY_FORM: FormState = { name: "", slug: "", logo_url: "", website_url: "", transcription_language: "" };
 
 function slugify(value: string) {
   return value
@@ -55,6 +72,7 @@ function PlatformModal({ open, onClose, onSaved, platform }: PlatformModalProps)
           slug: platform.slug,
           logo_url: platform.logo_url ?? "",
           website_url: platform.website_url ?? "",
+          transcription_language: platform.transcription_language ?? "",
         });
         setSlugTouched(true);
       } else {
@@ -87,8 +105,8 @@ function PlatformModal({ open, onClose, onSaved, platform }: PlatformModalProps)
     const method = isEdit ? "PATCH" : "POST";
 
     const body = isEdit
-      ? { name: form.name, logo_url: form.logo_url || null, website_url: form.website_url || null }
-      : { name: form.name, slug: form.slug, logo_url: form.logo_url || null, website_url: form.website_url || null };
+      ? { name: form.name, logo_url: form.logo_url || null, website_url: form.website_url || null, transcription_language: form.transcription_language || null }
+      : { name: form.name, slug: form.slug, logo_url: form.logo_url || null, website_url: form.website_url || null, transcription_language: form.transcription_language || null };
 
     const res = await fetch(url, {
       method,
@@ -207,6 +225,21 @@ function PlatformModal({ open, onClose, onSaved, platform }: PlatformModalProps)
               placeholder="https://example.com"
               className="w-full h-8 px-3 text-sm rounded-md border border-[#D8DCDE] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] text-[#2F3941] placeholder:text-[#C2C8CC]"
             />
+          </div>
+
+          {/* Transcription Language */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-[#2F3941]">Transcription Language</label>
+            <select
+              value={form.transcription_language}
+              onChange={e => setForm(prev => ({ ...prev, transcription_language: e.target.value }))}
+              className="w-full h-8 px-3 text-sm rounded-md border border-[#D8DCDE] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] text-[#2F3941] bg-white"
+            >
+              {LANGUAGES.map(l => (
+                <option key={l.value} value={l.value}>{l.label}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-[#68717A]">Language used for AI call transcription. Auto-detect works for most cases.</p>
           </div>
         </form>
 

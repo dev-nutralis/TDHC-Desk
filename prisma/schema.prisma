@@ -7,13 +7,14 @@ datasource db {
 }
 
 model Platform {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  logo_url    String?
-  website_url String?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  name                   String
+  slug                   String   @unique
+  logo_url               String?
+  website_url            String?
+  transcription_language String?  // null = auto-detect
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
 }
 
 model User {

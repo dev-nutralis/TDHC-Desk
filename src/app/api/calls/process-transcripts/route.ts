@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { downloadRecording } from "@/lib/yeastar-client";
 import { transcribeCallAudio } from "@/lib/gemini";
+import { getPlatformSlug } from "@/lib/platform";
 
 export const maxDuration = 60;
 
@@ -32,7 +33,12 @@ export async function GET() {
 
     try {
       const audioBuffer = await downloadRecording(call.recording_id);
-      const result = await transcribeCallAudio(audioBuffer);
+      let transcriptionLanguage: string | null = null;
+      if (call.platform_id) {
+        const platform = await prisma.platform.findUnique({ where: { id: call.platform_id } });
+        transcriptionLanguage = platform?.transcription_language ?? null;
+      }
+      const result = await transcribeCallAudio(audioBuffer, transcriptionLanguage);
 
       await prisma.call.update({
         where: { id: call.id },
