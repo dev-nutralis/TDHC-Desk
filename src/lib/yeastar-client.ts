@@ -91,20 +91,30 @@ export async function downloadRecording(filename: string): Promise<Buffer> {
     downloadUrl = `https://${YEASTAR_HOST}${downloadUrl}`;
   }
 
-  // Yeastar sometimes returns a URL that already has the token, sometimes not
-  // Try without extra token first, then with token appended
-  const urlsToTry = [
-    downloadUrl,
-    downloadUrl.includes("access_token=")
-      ? downloadUrl
-      : `${downloadUrl}${downloadUrl.includes("?") ? "&" : "?"}access_token=${token}`,
+  // Build URL variants + auth header variants to try
+  const withToken = downloadUrl.includes("access_token=")
+    ? downloadUrl
+    : `${downloadUrl}${downloadUrl.includes("?") ? "&" : "?"}access_token=${token}`;
+
+  const attempts: Array<{ url: string; headers: Record<string, string> }> = [
+    { url: downloadUrl,  headers: { "Authorization": `Bearer ${token}` } },
+    { url: withToken,    headers: {} },
+    { url: downloadUrl,  headers: {} },
   ];
 
-  for (const url of urlsToTry) {
-    console.log("[yeastar] fetching audio from:", url);
-    const audioRes = await fetch(url, { headers: { "User-Agent": "TDHCDesk/1.0" } });
-    console.log("[yeastar] audio fetch status:", audioRes.status, audioRes.statusText);
-    if (audioRes.ok) return Buffer.from(await audioRes.arrayBuffer());
+  for (const { url, headers } of attempts) {
+    console.log("[yeastar] fetching audio from:", url, "auth:", Object.keys(headers).join(","));
+    const audioRes = await fetch(url, { headers: { "User-Agent": "TDHCDesk/1.0", ...headers } });
+    const ct = audioRes.headers.get("content-type") ?? "";
+    console.log("[yeastar] audio response:", audioRes.status, ct);
+
+    if (!audioRes.ok) continue;
+    if (ct.includes("json") || ct.includes("text")) {
+      const body = await audioRes.text();
+      console.log("[yeastar] unexpected response body:", body.slice(0, 200));
+      continue;
+    }
+    return Buffer.from(await audioRes.arrayBuffer());
   }
 
   throw new Error(`Recording audio download failed for file: ${filename}`);
