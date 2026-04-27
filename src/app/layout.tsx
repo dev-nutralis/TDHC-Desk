@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={geist.variable}>
-      <body className="flex h-screen overflow-hidden bg-[#F3F4F6]">
+      <body className="min-h-screen bg-[#F3F4F6]">
         <TooltipProvider>
           {children}
         </TooltipProvider>
