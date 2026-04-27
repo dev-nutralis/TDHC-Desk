@@ -109,11 +109,11 @@ export async function GET(
 
     const buffer = convertG711ToPcm(raw);
 
-    return new NextResponse(buffer.buffer as ArrayBuffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": "audio/wav",
         "Content-Length": String(buffer.length),
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "no-store",
       },
     });
   } catch (err) {
