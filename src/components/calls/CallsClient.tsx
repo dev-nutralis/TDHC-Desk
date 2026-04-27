@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Phone, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Play, Pause, Loader2, RefreshCw, Info, X } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Play, Pause, Loader2, RefreshCw, Info, X, RotateCcw } from "lucide-react";
 import { DialPad } from "./DialPad";
 import type { Call } from "@prisma/client";
 import { cn } from "@/lib/utils";
@@ -199,6 +199,7 @@ function SentimentBadge({ sentiment }: { sentiment?: string }) {
 function CallDetailModal({ call, onClose }: { call: CallWithTranscript; onClose: () => void }) {
   const [tab, setTab] = useState<"summary" | "transcript">("summary");
   const [data, setData] = useState<CallWithTranscript>(call);
+  const [regenerating, setRegenerating] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchCall = useCallback(async () => {
@@ -229,6 +230,23 @@ function CallDetailModal({ call, onClose }: { call: CallWithTranscript; onClose:
     return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, [fetchCall]);
 
+  async function regenerate() {
+    setRegenerating(true);
+    await fetch(`/api/calls/${call.id}/transcribe`, { method: "POST" });
+    setRegenerating(false);
+    const status = await fetchCall();
+    if (status === "pending" || status === "processing") {
+      const poll = () => {
+        fetchCall().then((s) => {
+          if (s === "pending" || s === "processing") {
+            pollRef.current = setTimeout(poll, 3000);
+          }
+        });
+      };
+      pollRef.current = setTimeout(poll, 3000);
+    }
+  }
+
   const number = call.direction === "inbound" ? call.caller_number : call.callee_number;
   const status = data.transcript_status;
   const isPending = status === "pending" || status === "processing";
@@ -255,9 +273,24 @@ function CallDetailModal({ call, onClose }: { call: CallWithTranscript; onClose:
               <span className="ml-2 capitalize">{call.direction} · {call.status}</span>
             </p>
           </div>
-          <button onClick={onClose} className="text-[#68717A] hover:text-[#2F3941] transition-colors ml-4 mt-0.5">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2 ml-4 mt-0.5">
+            {call.recording_id && !isPending && (
+              <button
+                onClick={regenerate}
+                disabled={regenerating}
+                title="Regenerate transcript"
+                className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-50 transition-colors"
+              >
+                {regenerating
+                  ? <Loader2 size={11} className="animate-spin" />
+                  : <RotateCcw size={11} />}
+                Regenerate
+              </button>
+            )}
+            <button onClick={onClose} className="text-[#68717A] hover:text-[#2F3941] transition-colors">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {call.recording_id && (
