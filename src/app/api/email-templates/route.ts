@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 
 export async function GET(_req: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const templates = await prisma.emailTemplate.findMany({
+      where: { platform_id: platformId },
       orderBy: { created_at: "desc" },
     });
     return NextResponse.json(templates);
@@ -15,6 +22,10 @@ export async function GET(_req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const body = await req.json();
     const { name, subject, body: templateBody } = body;
 
@@ -30,6 +41,7 @@ export async function POST(req: NextRequest) {
         name: name.trim(),
         subject: subject && typeof subject === "string" ? subject.trim() : null,
         body: templateBody.trim(),
+        platform_id: platformId,
       },
     });
     return NextResponse.json(template, { status: 201 });

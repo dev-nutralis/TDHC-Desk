@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 import { sendEmail } from "@/lib/mailer";
 import { sendSms } from "@/lib/tg1600-client";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const { id } = await params;
-    const contact = await prisma.contact.findUnique({ where: { id }, select: { field_values: true } });
+    const contact = await prisma.contact.findFirst({ where: { id, platform_id: platformId }, select: { field_values: true } });
     const fieldValues = contact?.field_values as Record<string, unknown> | null;
 
     // Scan all field_values for arrays with {number} entries (covers any field key)
@@ -71,6 +77,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const { id } = await params;
     const { type, subject, body, html, attachments, phone } = await req.json();
 
@@ -81,7 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "body must not be empty" }, { status: 400 });
     }
 
-    const contact = await prisma.contact.findUnique({ where: { id } });
+    const contact = await prisma.contact.findFirst({ where: { id, platform_id: platformId } });
     if (!contact) return NextResponse.json({ error: "Contact not found" }, { status: 404 });
 
     if (type === "email") {

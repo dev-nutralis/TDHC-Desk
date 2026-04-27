@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 
 const includeAll = {
   attribute_groups: {
@@ -9,14 +11,25 @@ const includeAll = {
 };
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+
   const { id } = await params;
-  const source = await prisma.source.findUnique({ where: { id }, include: includeAll });
+  const source = await prisma.source.findFirst({ where: { id, platform_id: platformId }, include: includeAll });
   if (!source) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(source);
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+
   const { id } = await params;
+  const existing = await prisma.source.findFirst({ where: { id, platform_id: platformId } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   const { name, attribute_groups } = await req.json();
 
   // Delete all existing groups (cascades to items)
@@ -45,7 +58,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+
   const { id } = await params;
+  const existing = await prisma.source.findFirst({ where: { id, platform_id: platformId } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   await prisma.source.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

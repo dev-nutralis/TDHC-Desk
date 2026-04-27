@@ -16,10 +16,9 @@ async function main() {
     create: { name: "Admin", email: "admin@tdhc.com" },
   });
 
-  const website = await prisma.source.upsert({
-    where: { name: "Website" },
-    update: {},
-    create: {
+  const websiteExisting = await prisma.source.findFirst({ where: { name: "Website" } });
+  const website = websiteExisting ?? await prisma.source.create({
+    data: {
       name: "Website",
       attribute_groups: {
         create: [
@@ -43,10 +42,9 @@ async function main() {
     },
   });
 
-  const referral = await prisma.source.upsert({
-    where: { name: "Referral" },
-    update: {},
-    create: {
+  const referralExisting = await prisma.source.findFirst({ where: { name: "Referral" } });
+  const referral = referralExisting ?? await prisma.source.create({
+    data: {
       name: "Referral",
       attribute_groups: {
         create: [

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 
 interface FilterCondition {
   field_key: string;
@@ -82,6 +84,10 @@ const includeContact = {
 
 export async function GET(req: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const { searchParams } = new URL(req.url);
     const search    = searchParams.get("search") || "";
     const contactId = searchParams.get("contact_id") || "";
@@ -98,6 +104,10 @@ export async function GET(req: NextRequest) {
     const clauses: string[] = [];
     const params: unknown[] = [];
 
+    // Add platform_id clause first
+    clauses.push(`platform_id = $${params.length + 1}`);
+    params.push(platformId);
+
     if (search) {
       clauses.push(`field_values::text ILIKE $${params.length + 1}`);
       params.push("%" + search + "%");
@@ -110,7 +120,7 @@ export async function GET(req: NextRequest) {
     params.push(...filterParams);
 
     // Base where (contact_id scope)
-    const baseWhere: Record<string, unknown> = {};
+    const baseWhere: Record<string, unknown> = { platform_id: platformId };
     if (contactId) baseWhere.contact_id = contactId;
 
     let ids: string[] | null = null;
@@ -142,6 +152,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+
   const { contact_id, field_values, user_id } = await req.json();
 
   if (!contact_id)
@@ -154,6 +168,7 @@ export async function POST(req: NextRequest) {
       contact_id,
       field_values: field_values ?? {},
       user_id,
+      platform_id: platformId,
     },
     include: includeContact,
   });

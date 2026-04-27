@@ -1,2 +1,2 @@
 import { redirect } from "next/navigation";
-export default function SettingsPage() { redirect("/settings/leads"); }
+export default function SettingsPage() { redirect("/evalley/settings/leads"); }

@@ -127,7 +127,7 @@ const fields = [
 async function main() {
   for (const field of fields) {
     const { options, config, ...fieldData } = field as typeof field & { config?: string };
-    const existing = await prisma.contactField.findUnique({ where: { field_key: fieldData.field_key } });
+    const existing = await prisma.contactField.findFirst({ where: { field_key: fieldData.field_key } });
     if (!existing) {
       await prisma.contactField.create({
         data: {

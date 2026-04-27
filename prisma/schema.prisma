@@ -6,6 +6,16 @@ datasource db {
   provider = "postgresql"
 }
 
+model Platform {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  logo_url    String?
+  website_url String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}
+
 model User {
   id               String           @id @default(uuid())
   name             String
@@ -22,12 +32,15 @@ model User {
 
 model Source {
   id               String                 @id @default(uuid())
-  name             String                 @unique
+  name             String
+  platform_id      String?
   created_at       DateTime               @default(now())
   updated_at       DateTime               @updatedAt
   attribute_groups SourceAttributeGroup[]
   leads            Lead[]
   contacts         Contact[]
+
+  @@unique([name, platform_id])
 }
 
 model SourceAttributeGroup {
@@ -50,17 +63,20 @@ model SourceAttributeItem {
 model ContactField {
   id              String               @id @default(uuid())
   label           String
-  field_key       String               @unique
+  field_key       String
   field_type      String
   sort_order      Int                  @default(0)
   is_required     Boolean              @default(false)
   is_active       Boolean              @default(true)
   is_filterable   Boolean              @default(true)
   config          String?
-  source_module   String?              // "leads" if imported from another module
-  source_field_id String?              // ID of the source field in that module
+  source_module   String?
+  source_field_id String?
+  platform_id     String?
   options         ContactFieldOption[]
   created_at      DateTime             @default(now())
+
+  @@unique([field_key, platform_id])
 }
 
 model ContactFieldOption {
@@ -77,9 +93,10 @@ model Contact {
   field_values  Json?
   source_id     String?
   source        Source?           @relation(fields: [source_id], references: [id])
-  attribute_ids String?           // JSON: selected SourceAttributeItem ids
+  attribute_ids String?
   user_id       String
   user          User              @relation(fields: [user_id], references: [id])
+  platform_id   String?
   created_at    DateTime          @default(now())
   updated_at    DateTime          @updatedAt
   activities       ContactActivity[]
@@ -91,13 +108,14 @@ model ContactActivity {
   id               String   @id @default(uuid())
   contact_id       String
   contact          Contact  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
-  type             String   // "email" | "note"
-  direction        String   @default("outbound") // "outbound" | "inbound"
+  type             String
+  direction        String   @default("outbound")
   subject          String?
   body             String
-  email_message_id String?  @unique // RFC Message-ID, prevents duplicate ingestion
+  email_message_id String?  @unique
   deal_id          String?
   deal             Deal?    @relation(fields: [deal_id], references: [id], onDelete: SetNull)
+  platform_id      String?
   archived         Boolean  @default(false)
   created_at       DateTime @default(now())
 }
@@ -110,6 +128,7 @@ model Lead {
   attribute_ids String?
   user_id       String
   user          User     @relation(fields: [user_id], references: [id])
+  platform_id   String?
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 }
@@ -117,15 +136,18 @@ model Lead {
 model LeadField {
   id            String            @id @default(uuid())
   label         String
-  field_key     String            @unique
+  field_key     String
   field_type    String
   sort_order    Int               @default(0)
   is_required   Boolean           @default(false)
   is_active     Boolean           @default(true)
   is_filterable Boolean           @default(true)
   config        String?
+  platform_id   String?
   options       LeadFieldOption[]
   created_at    DateTime          @default(now())
+
+  @@unique([field_key, platform_id])
 }
 
 model LeadFieldOption {
@@ -137,33 +159,36 @@ model LeadFieldOption {
   sort_order Int       @default(0)
 }
 
-// Stores admin-configured layout of contact fields on the detail page
-// field_key is either a ContactField.field_key or a built-in: "__source__" | "__added_on__"
 model ProfileFieldConfig {
   id         String   @id @default(uuid())
-  field_key  String   @unique
-  section    String   // "contact_info" | "details"
+  field_key  String
+  section    String
   sort_order Int      @default(0)
   is_visible Boolean  @default(true)
+  platform_id String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+
+  @@unique([field_key, platform_id])
 }
 
 model EmailTemplate {
-  id         String   @id @default(uuid())
-  name       String
-  subject    String?
-  body       String
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  subject     String?
+  body        String
+  platform_id String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 }
 
 model EmailSignature {
-  id         String   @id @default(uuid())
-  name       String
-  body       String
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  body        String
+  platform_id String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 }
 
 model Deal {
@@ -173,6 +198,7 @@ model Deal {
   field_values Json?
   user_id      String
   user         User       @relation(fields: [user_id], references: [id])
+  platform_id  String?
   created_at   DateTime   @default(now())
   updated_at   DateTime   @updatedAt
   notes            DealNote[]
@@ -183,7 +209,7 @@ model Deal {
 model DealField {
   id              String            @id @default(uuid())
   label           String
-  field_key       String            @unique
+  field_key       String
   field_type      String
   sort_order      Int               @default(0)
   is_required     Boolean           @default(false)
@@ -192,8 +218,11 @@ model DealField {
   config          String?
   source_module   String?
   source_field_id String?
+  platform_id     String?
   options         DealFieldOption[]
   created_at      DateTime          @default(now())
+
+  @@unique([field_key, platform_id])
 }
 
 model DealFieldOption {
@@ -216,20 +245,26 @@ model DealNote {
 }
 
 model DealProfileConfig {
-  id         String   @id @default(uuid())
-  field_key  String   @unique
-  section    String
-  sort_order Int      @default(0)
-  is_visible Boolean  @default(true)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id          String   @id @default(uuid())
+  field_key   String
+  section     String
+  sort_order  Int      @default(0)
+  is_visible  Boolean  @default(true)
+  platform_id String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@unique([field_key, platform_id])
 }
 
 model CalendarEventTitle {
-  id         String   @id @default(uuid())
-  label      String   @unique
-  sort_order Int      @default(0)
-  created_at DateTime @default(now())
+  id          String   @id @default(uuid())
+  label       String
+  sort_order  Int      @default(0)
+  platform_id String?
+  created_at  DateTime @default(now())
+
+  @@unique([label, platform_id])
 }
 
 model CalendarEvent {
@@ -247,6 +282,7 @@ model CalendarEvent {
   contact     Contact? @relation(fields: [contact_id], references: [id], onDelete: SetNull)
   deal_id     String?
   deal        Deal?    @relation(fields: [deal_id], references: [id], onDelete: SetNull)
+  platform_id String?
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 }
@@ -285,6 +321,7 @@ model Call {
   summary            String?
   transcript_status  String?
   contact_id         String?
+  platform_id        String?
   sip_account_id String?
   sip_account    SipAccount? @relation(fields: [sip_account_id], references: [id], onDelete: SetNull)
   user_id        String?

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 
 // ---------------------------------------------------------------------------
 // Built-in synthetic fields (not stored in ContactField table)
@@ -55,6 +57,7 @@ function parseHasNotes(config: string | null | undefined): boolean {
 }
 
 async function buildResponse(
+  platformId: string | null,
   rawConfigs: Array<{
     field_key: string;
     section: string;
@@ -62,9 +65,9 @@ async function buildResponse(
     is_visible: boolean;
   }>
 ) {
-  // Fetch all active ContactFields with their options
+  // Fetch all active ContactFields with their options for this platform
   const contactFields = await prisma.contactField.findMany({
-    where: { is_active: true },
+    where: { is_active: true, platform_id: platformId },
     include: { options: { orderBy: { sort_order: "asc" } } },
     orderBy: { sort_order: "asc" },
   });
@@ -121,7 +124,12 @@ async function buildResponse(
 // ---------------------------------------------------------------------------
 export async function GET(_req: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const dbConfigs = await prisma.profileFieldConfig.findMany({
+      where: { platform_id: platformId },
       orderBy: [{ section: "asc" }, { sort_order: "asc" }],
     });
 
@@ -140,7 +148,7 @@ export async function GET(_req: NextRequest) {
             is_visible: boolean;
           }>);
 
-    const body = await buildResponse(rawConfigs);
+    const body = await buildResponse(platformId, rawConfigs);
     return NextResponse.json(body);
   } catch (err) {
     console.error("[GET /api/profile-fields]", err);
@@ -156,6 +164,10 @@ export async function GET(_req: NextRequest) {
 // ---------------------------------------------------------------------------
 export async function PUT(req: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const body = await req.json();
 
     if (!Array.isArray(body?.configs)) {
@@ -181,20 +193,21 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Full replace inside a transaction
+    // Full replace inside a transaction (scoped to this platform)
     await prisma.$transaction([
-      prisma.profileFieldConfig.deleteMany(),
+      prisma.profileFieldConfig.deleteMany({ where: { platform_id: platformId } }),
       prisma.profileFieldConfig.createMany({
         data: incoming.map((item) => ({
           field_key: item.field_key,
           section: item.section,
           sort_order: item.sort_order ?? 0,
           is_visible: item.is_visible ?? true,
+          platform_id: platformId,
         })),
       }),
     ]);
 
-    const responseBody = await buildResponse(incoming);
+    const responseBody = await buildResponse(platformId, incoming);
     return NextResponse.json(responseBody);
   } catch (err) {
     console.error("[PUT /api/profile-fields]", err);

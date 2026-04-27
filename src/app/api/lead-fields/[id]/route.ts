@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 import { syncLeadFieldToContacts } from "@/lib/sync-lead-to-contact-field";
 
 const includeOptions = {
@@ -10,10 +12,14 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+
   const { id } = await params;
 
-  const field = await prisma.leadField.findUnique({
-    where: { id },
+  const field = await prisma.leadField.findFirst({
+    where: { id, platform_id: platformId },
     include: includeOptions,
   });
 
@@ -25,11 +31,15 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+
   const { id } = await params;
   const { label, field_key, field_type, sort_order, is_required, is_active, is_filterable, config } =
     await req.json();
 
-  const existing = await prisma.leadField.findUnique({ where: { id } });
+  const existing = await prisma.leadField.findFirst({ where: { id, platform_id: platformId } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const field = await prisma.leadField.update({
@@ -57,9 +67,13 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+
   const { id } = await params;
 
-  const existing = await prisma.leadField.findUnique({ where: { id } });
+  const existing = await prisma.leadField.findFirst({ where: { id, platform_id: platformId } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   await prisma.leadField.delete({ where: { id } });

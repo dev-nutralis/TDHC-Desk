@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 
 interface FilterCondition {
   field_key: string;
@@ -92,6 +94,10 @@ const includeSource = {
 
 export async function GET(req: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
     const page = parseInt(searchParams.get("page") || "1");
@@ -108,6 +114,10 @@ export async function GET(req: NextRequest) {
     const clauses: string[] = [];
     const params: unknown[] = [];
 
+    // Add platform_id clause first
+    clauses.push(`platform_id = $${params.length + 1}`);
+    params.push(platformId);
+
     if (search) {
       clauses.push(`field_values::text ILIKE $${params.length + 1}`);
       params.push("%" + search + "%");
@@ -121,14 +131,11 @@ export async function GET(req: NextRequest) {
     }
     params.push(...filterParams);
 
-    let ids: string[] | null = null;
-    if (clauses.length > 0) {
-      const sql = `SELECT id FROM "Contact" WHERE ${clauses.join(" AND ")}`;
-      const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
-      ids = rows.map((r) => r.id);
-    }
+    const sql = `SELECT id FROM "Contact" WHERE ${clauses.join(" AND ")}`;
+    const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
+    const ids = rows.map((r) => r.id);
 
-    const where = ids !== null ? { id: { in: ids } } : {};
+    const where = { id: { in: ids }, platform_id: platformId };
 
     const [contacts, total] = await Promise.all([
       prisma.contact.findMany({
@@ -150,6 +157,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const { field_values, source_id, attribute_ids, user_id } = await req.json();
 
     if (!user_id)
@@ -177,6 +188,7 @@ export async function POST(req: NextRequest) {
         source_id: source_id || null,
         attribute_ids: Array.isArray(attribute_ids) ? JSON.stringify(attribute_ids) : (attribute_ids ?? null),
         user_id,
+        platform_id: platformId,
         ...(createdAt ? { created_at: createdAt } : {}),
       },
       include: includeSource,

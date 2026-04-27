@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useParams } from "next/navigation";
 import {
-  Users, Briefcase, BarChart2, Settings,
-  Contact2, Phone, Zap, ChevronLeft, ChevronRight, CalendarDays, Inbox, CheckSquare,
+  Users, Briefcase, Settings,
+  Contact2, Phone, ChevronLeft, ChevronRight, CalendarDays, Inbox, CheckSquare,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -13,12 +14,12 @@ const navGroups = [
   {
     label: null,
     items: [
-      { href: "/leads", label: "Leads", icon: Users },
-      { href: "/contacts", label: "Contacts", icon: Contact2 },
-      { href: "/deals", label: "Deals", icon: Briefcase },
-      { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/tasks",    label: "Tasks",    icon: CheckSquare },
-      { href: "/calls",    label: "Calls",    icon: Phone },
+      { href: "/leads",          label: "Leads",          icon: Users },
+      { href: "/contacts",       label: "Contacts",       icon: Contact2 },
+      { href: "/deals",          label: "Deals",          icon: Briefcase },
+      { href: "/calendar",       label: "Calendar",       icon: CalendarDays },
+      { href: "/tasks",          label: "Tasks",          icon: CheckSquare },
+      { href: "/calls",          label: "Calls",          icon: Phone },
       { href: "/communications", label: "Communications", icon: Inbox },
     ],
   },
@@ -32,6 +33,9 @@ const navGroups = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const params = useParams();
+  const platform = (params?.platform as string) ?? "evalley";
+
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -57,6 +61,12 @@ export default function Sidebar() {
     });
   }
 
+  // Format platform slug for display: "evalley" → "Evalley"
+  const platformLabel = platform
+    .split("-")
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+
   return (
     <aside
       className={cn(
@@ -65,7 +75,7 @@ export default function Sidebar() {
       )}
       style={{ background: "var(--zd-sidebar)" }}
     >
-      {/* Logo / App name */}
+      {/* Logo / Platform switcher */}
       <div
         className={cn(
           "h-14 flex items-center shrink-0",
@@ -74,12 +84,21 @@ export default function Sidebar() {
         style={{ borderBottom: "1px solid var(--zd-sidebar-border)" }}
       >
         <div className="w-7 h-7 rounded-md bg-[#038153] flex items-center justify-center shrink-0">
-          <span className="text-white text-xs font-bold leading-none">T</span>
+          <span className="text-white text-xs font-bold leading-none">
+            {platformLabel.charAt(0).toUpperCase()}
+          </span>
         </div>
         {!collapsed && (
-          <div className="flex flex-col">
-            <span className="text-white text-sm font-semibold leading-tight">TDHC Desk</span>
-            <span className="text-[10px]" style={{ color: "var(--zd-sidebar-text)" }}>Sales CRM</span>
+          <div className="flex flex-col flex-1 min-w-0">
+            <div className="flex items-center gap-1">
+              <span className="text-white text-sm font-semibold leading-tight truncate">
+                {platformLabel}
+              </span>
+              <ChevronDown size={12} strokeWidth={2} className="shrink-0 text-white/60" />
+            </div>
+            <span className="text-[10px]" style={{ color: "var(--zd-sidebar-text)" }}>
+              Sales CRM
+            </span>
           </div>
         )}
       </div>
@@ -98,11 +117,13 @@ export default function Sidebar() {
             )}
             <div className="space-y-0.5">
               {group.items.map(({ href, label, icon: Icon }) => {
-                const active = pathname === href || pathname.startsWith(href + "/");
+                const fullHref = `/${platform}${href}`;
+                const active =
+                  pathname === fullHref || pathname.startsWith(fullHref + "/");
                 return (
                   <Link
                     key={href}
-                    href={href}
+                    href={fullHref}
                     title={collapsed ? label : undefined}
                     className={cn(
                       "flex items-center py-2 rounded-md text-[13px] font-medium transition-all duration-150 relative",
@@ -155,7 +176,9 @@ export default function Sidebar() {
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-[12px] font-medium text-white truncate">Admin</p>
-              <p className="text-[10px] truncate" style={{ color: "var(--zd-sidebar-text)" }}>admin@tdhc.com</p>
+              <p className="text-[10px] truncate" style={{ color: "var(--zd-sidebar-text)" }}>
+                admin@tdhc.com
+              </p>
             </div>
           )}
         </div>

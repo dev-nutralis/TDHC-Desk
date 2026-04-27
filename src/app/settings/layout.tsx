@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone } from "lucide-react";
+import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone, Building2 } from "lucide-react";
 
 const configTabs = [
-  { href: "/settings/leads",    label: "Leads",    icon: Tag },
-  { href: "/settings/contacts", label: "Contacts", icon: Contact2 },
-  { href: "/settings/deals",    label: "Deals",    icon: Briefcase },
-  { href: "/settings/emails",   label: "Emails",   icon: Mail },
-  { href: "/settings/sip",      label: "SIP Phone", icon: Phone },
+  { href: "/settings/leads",     label: "Leads",     icon: Tag },
+  { href: "/settings/contacts",  label: "Contacts",  icon: Contact2 },
+  { href: "/settings/deals",     label: "Deals",     icon: Briefcase },
+  { href: "/settings/emails",    label: "Emails",    icon: Mail },
+  { href: "/settings/sip",       label: "SIP Phone", icon: Phone },
+  { href: "/settings/platforms", label: "Platforms", icon: Building2 },
 ];
 
 const preferencesTabs = [
