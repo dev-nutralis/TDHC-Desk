@@ -93,6 +93,20 @@ export async function GET(
 
   try {
     const raw = await downloadRecording(call.recording_id);
+
+    // Debug: log WAV header info
+    if (raw.length >= 36) {
+      const riff     = raw.toString("ascii", 0, 4);
+      const wave     = raw.toString("ascii", 8, 12);
+      const fmt      = raw.toString("ascii", 12, 16);
+      const fmtCode  = raw.length > 21 ? raw.readUInt16LE(20) : -1;
+      const channels = raw.length > 23 ? raw.readUInt16LE(22) : -1;
+      const sr       = raw.length > 27 ? raw.readUInt32LE(24) : -1;
+      const bps      = raw.length > 35 ? raw.readUInt16LE(34) : -1;
+      console.log(`[recording] size=${raw.length} riff=${riff} wave=${wave} fmt=${fmt} fmtCode=${fmtCode} ch=${channels} sr=${sr} bps=${bps}`);
+      console.log(`[recording] header hex: ${raw.slice(0, 44).toString("hex")}`);
+    }
+
     const buffer = convertG711ToPcm(raw);
 
     return new NextResponse(buffer.buffer as ArrayBuffer, {

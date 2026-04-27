@@ -72,6 +72,13 @@ function RecordingPlayer({ callId }: { callId: string }) {
       console.log("[RecordingPlayer] blob size:", blob.size, "type:", blob.type);
       if (blob.size === 0) throw new Error("Empty blob");
 
+      // Log first 12 bytes to verify RIFF/WAVE header
+      const head = await blob.slice(0, 12).arrayBuffer();
+      const headBytes = new Uint8Array(head);
+      const headStr = Array.from(headBytes).map(b => String.fromCharCode(b)).join("");
+      console.log("[RecordingPlayer] header:", headStr, "| canPlay wav:", new Audio().canPlayType("audio/wav"));
+
+
       const url = URL.createObjectURL(blob);
       blobUrlRef.current = url;
 
