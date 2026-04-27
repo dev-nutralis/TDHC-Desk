@@ -31,7 +31,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Redirect root → first platform (middleware will handle auth on next request)
+  // Redirect root to login
   if (pathname === "/" || pathname === "") {
     return NextResponse.redirect(new URL("/login", request.url));
   }
@@ -53,9 +53,8 @@ export async function middleware(request: NextRequest) {
     session.role === "admin" &&
     slug &&
     /^[a-z0-9-]+$/.test(slug) &&
-    !session.platformIds.includes(slug) // we'll store slugs in token
+    !session.platformIds.includes(slug)
   ) {
-    // Redirect to first allowed platform or login
     const firstPlatformSlug = session.platformIds[0];
     if (firstPlatformSlug) {
       return NextResponse.redirect(new URL(`/${firstPlatformSlug}/leads`, request.url));
