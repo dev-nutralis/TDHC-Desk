@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Phone, PhoneIncoming, PhoneMissed, PhoneOff, Clock, Play, Pause, Loader2, RefreshCw } from "lucide-react";
 import { DialPad } from "./DialPad";
 import type { Call } from "@prisma/client";
@@ -32,35 +32,60 @@ function CallStatusIcon({ status, direction }: { status: string; direction: stri
   return <Phone size={14} className="text-[#68717A]" />;
 }
 
+function formatTime(sec: number): string {
+  if (!isFinite(sec) || sec < 0) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 function RecordingPlayer({ callId }: { callId: string }) {
-  const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
-  async function handlePlay() {
-    if (audio) {
-      if (playing) {
-        audio.pause();
-        setPlaying(false);
-      } else {
-        audio.play();
-        setPlaying(true);
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
       }
-      return;
-    }
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    };
+  }, []);
 
+  async function load() {
     setLoading(true);
     setError(false);
     try {
       const res = await fetch(`/api/calls/${callId}/recording`);
-      if (!res.ok) throw new Error("No recording");
+      if (!res.ok) throw new Error("fetch failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
+      blobUrlRef.current = url;
+
       const a = new Audio(url);
-      a.onended = () => setPlaying(false);
-      a.play();
-      setAudio(a);
+      audioRef.current = a;
+
+      await new Promise<void>((resolve, reject) => {
+        a.onloadedmetadata = () => {
+          setDuration(a.duration);
+          resolve();
+        };
+        a.onerror = reject;
+        a.load();
+      });
+
+      a.ontimeupdate = () => setCurrentTime(a.currentTime);
+      a.onended = () => { setPlaying(false); setCurrentTime(0); a.currentTime = 0; };
+
+      setLoaded(true);
+      await a.play();
       setPlaying(true);
     } catch {
       setError(true);
@@ -69,20 +94,62 @@ function RecordingPlayer({ callId }: { callId: string }) {
     }
   }
 
+  async function togglePlay() {
+    if (!loaded) { await load(); return; }
+    const a = audioRef.current!;
+    if (playing) {
+      a.pause();
+      setPlaying(false);
+    } else {
+      await a.play();
+      setPlaying(true);
+    }
+  }
+
+  function seek(e: React.MouseEvent<HTMLDivElement>) {
+    const a = audioRef.current;
+    if (!a || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    a.currentTime = ratio * duration;
+    setCurrentTime(a.currentTime);
+  }
+
   if (error) return <span className="text-[10px] text-[#C2C8CC]">No recording</span>;
 
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
   return (
-    <button
-      onClick={handlePlay}
-      title={playing ? "Pause" : "Play recording"}
-      className="w-7 h-7 rounded-full flex items-center justify-center bg-[#038153] hover:bg-[#026b44] text-white transition-colors shrink-0"
-    >
-      {loading
-        ? <Loader2 size={13} className="animate-spin" />
-        : playing
-        ? <Pause size={13} />
-        : <Play size={13} />}
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={togglePlay}
+        title={playing ? "Pause" : "Play recording"}
+        className="w-7 h-7 rounded-full flex items-center justify-center bg-[#038153] hover:bg-[#026b44] text-white transition-colors shrink-0"
+      >
+        {loading
+          ? <Loader2 size={13} className="animate-spin" />
+          : playing
+          ? <Pause size={13} />
+          : <Play size={13} />}
+      </button>
+
+      {loaded && (
+        <>
+          <div
+            className="w-28 h-1.5 bg-[#E4E7EB] rounded-full cursor-pointer relative shrink-0"
+            onClick={seek}
+          >
+            <div
+              className="absolute left-0 top-0 h-full bg-[#038153] rounded-full pointer-events-none"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-[#68717A] tabular-nums shrink-0">
+            {formatTime(currentTime)}&nbsp;/&nbsp;{formatTime(duration)}
+          </span>
+        </>
+      )}
+    </div>
   );
 }
 
