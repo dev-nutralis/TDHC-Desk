@@ -8,11 +8,28 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const contact = await prisma.contact.findUnique({ where: { id }, select: { field_values: true } });
     const fieldValues = contact?.field_values as Record<string, unknown> | null;
-    const phones = (fieldValues?.phones as { number: string }[] | undefined)
-      ?.map(p => p.number?.trim())
-      .filter(Boolean) ?? [];
 
-    const [activities, calls] = await Promise.all([
+    // Scan all field_values for arrays with {number} entries (covers any field key)
+    const rawPhones: string[] = fieldValues
+      ? Object.values(fieldValues)
+          .filter((v): v is { number: string }[] =>
+            Array.isArray(v) && v.length > 0 && typeof (v as {number:string}[])[0]?.number === "string"
+          )
+          .flatMap(arr => arr.map(p => p.number?.trim()).filter(Boolean))
+      : [];
+
+    // Use last 8 digits for suffix match — handles country code differences
+    // e.g. +38641234567 and 41234567 both end with "41234567"
+    const phoneSuffixes = rawPhones
+      .map(p => p.replace(/\D/g, "").slice(-8))
+      .filter(s => s.length >= 6);
+
+    const phoneConditions = phoneSuffixes.flatMap(suffix => [
+      { caller_number: { endsWith: suffix } },
+      { callee_number: { endsWith: suffix } },
+    ]);
+
+    const [activities, rawCalls] = await Promise.all([
       prisma.contactActivity.findMany({
         where: { contact_id: id },
         orderBy: { created_at: "asc" },
@@ -21,10 +38,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         where: {
           OR: [
             { contact_id: id },
-            ...(phones.length > 0 ? [
-              { caller_number: { in: phones } },
-              { callee_number: { in: phones } },
-            ] : []),
+            ...phoneConditions,
           ],
         },
         orderBy: { started_at: "asc" },
@@ -41,6 +55,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         },
       }),
     ]);
+
+    // Deduplicate (call may match both contact_id and phone suffix)
+    const seen = new Set<string>();
+    const calls = rawCalls.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
     return NextResponse.json({ activities, calls });
   } catch (err) {
     console.error("[GET /api/contacts/:id/activities]", err);
