@@ -46,22 +46,11 @@ export async function transcribeCallAudio(audioBuffer: Buffer): Promise<{
     generationConfig: { response_mime_type: "application/json" },
   });
 
-  let res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
+  const res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: payload,
   });
-
-  // Retry once after 10s on rate limit
-  if (res.status === 429) {
-    console.log("[gemini] 429 rate limit — retrying in 10s");
-    await new Promise(r => setTimeout(r, 10_000));
-    res = await fetch(`${GEMINI_BASE}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-    });
-  }
 
   if (!res.ok) {
     const body = await res.text();

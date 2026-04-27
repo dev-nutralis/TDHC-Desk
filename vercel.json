@@ -11,7 +11,7 @@
     },
     {
       "path": "/api/calls/process-transcripts",
-      "schedule": "* * * * *"
+      "schedule": "*/5 * * * *"
     }
   ],
   "functions": {

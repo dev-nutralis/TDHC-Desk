@@ -47,9 +47,14 @@ export async function GET() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[process-transcripts] failed for call ${call.id}:`, msg);
+      // 429 = rate limit — retry next cron tick instead of marking as failed
+      const isRateLimit = msg.includes("429");
       await prisma.call.update({
         where: { id: call.id },
-        data: { transcript_status: "failed", transcript: msg },
+        data: {
+          transcript_status: isRateLimit ? "pending" : "failed",
+          transcript: isRateLimit ? null : msg,
+        },
       });
     }
   }
