@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { usePathname, useParams } from "next/navigation";
+import { usePathname, useParams, useRouter } from "next/navigation";
 import {
   Users, Briefcase, Settings,
   Contact2, Phone, ChevronLeft, ChevronRight, CalendarDays, Inbox, CheckSquare,
-  ChevronDown,
+  ChevronDown, Check, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,41 +31,85 @@ const navGroups = [
   },
 ];
 
+interface Platform {
+  id: string;
+  name: string;
+  slug: string;
+  logo_url: string | null;
+}
+
+function PlatformLogo({ platform, size = 28 }: { platform: Platform | null; size?: number }) {
+  if (platform?.logo_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={platform.logo_url}
+        alt={platform.name}
+        style={{ width: size, height: size }}
+        className="rounded-md object-contain bg-white"
+      />
+    );
+  }
+  const letter = platform ? platform.name.charAt(0).toUpperCase() : "?";
+  return (
+    <div
+      style={{ width: size, height: size }}
+      className="rounded-md bg-[#038153] flex items-center justify-center shrink-0"
+    >
+      <span className="text-white text-xs font-bold leading-none">{letter}</span>
+    </div>
+  );
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const params = useParams();
+  const router = useRouter();
   const platform = (params?.platform as string) ?? "evalley";
 
   const [collapsed, setCollapsed] = useState(false);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem("sidebar_collapsed");
-      if (stored !== null) {
-        setCollapsed(stored === "true");
-      }
-    } catch {
-      // localStorage unavailable
-    }
+      if (stored !== null) setCollapsed(stored === "true");
+    } catch { /* localStorage unavailable */ }
   }, []);
+
+  useEffect(() => {
+    fetch("/api/platforms")
+      .then(r => r.json())
+      .then(data => setPlatforms(data.platforms ?? []));
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [dropdownOpen]);
 
   function toggle() {
     setCollapsed(prev => {
       const next = !prev;
-      try {
-        localStorage.setItem("sidebar_collapsed", String(next));
-      } catch {
-        // localStorage unavailable
-      }
+      try { localStorage.setItem("sidebar_collapsed", String(next)); } catch { /* */ }
       return next;
     });
   }
 
-  // Format platform slug for display: "evalley" → "Evalley"
-  const platformLabel = platform
-    .split("-")
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+  function switchPlatform(slug: string) {
+    setDropdownOpen(false);
+    router.push(`/${slug}/leads`);
+  }
+
+  const currentPlatform = platforms.find(p => p.slug === platform) ?? null;
 
   return (
     <aside
@@ -75,30 +119,66 @@ export default function Sidebar() {
       )}
       style={{ background: "var(--zd-sidebar)" }}
     >
-      {/* Logo / Platform switcher */}
+      {/* Platform switcher */}
       <div
-        className={cn(
-          "h-14 flex items-center shrink-0",
-          collapsed ? "justify-center px-0" : "px-5 gap-2.5"
-        )}
+        ref={dropdownRef}
+        className="relative shrink-0"
         style={{ borderBottom: "1px solid var(--zd-sidebar-border)" }}
       >
-        <div className="w-7 h-7 rounded-md bg-[#038153] flex items-center justify-center shrink-0">
-          <span className="text-white text-xs font-bold leading-none">
-            {platformLabel.charAt(0).toUpperCase()}
-          </span>
-        </div>
-        {!collapsed && (
-          <div className="flex flex-col flex-1 min-w-0">
-            <div className="flex items-center gap-1">
-              <span className="text-white text-sm font-semibold leading-tight truncate">
-                {platformLabel}
+        <button
+          onClick={() => setDropdownOpen(prev => !prev)}
+          className={cn(
+            "w-full h-14 flex items-center transition-colors hover:bg-white/5",
+            collapsed ? "justify-center px-0" : "px-4 gap-2.5"
+          )}
+        >
+          <div className="shrink-0">
+            <PlatformLogo platform={currentPlatform} size={28} />
+          </div>
+          {!collapsed && (
+            <>
+              <span className="text-white text-sm font-semibold leading-tight truncate flex-1 text-left">
+                {currentPlatform?.name ?? platform}
               </span>
-              <ChevronDown size={12} strokeWidth={2} className="shrink-0 text-white/60" />
-            </div>
-            <span className="text-[10px]" style={{ color: "var(--zd-sidebar-text)" }}>
-              Sales CRM
-            </span>
+              <ChevronDown
+                size={13}
+                strokeWidth={2}
+                className={cn("shrink-0 text-white/50 transition-transform", dropdownOpen && "rotate-180")}
+              />
+            </>
+          )}
+        </button>
+
+        {/* Dropdown */}
+        {dropdownOpen && !collapsed && (
+          <div
+            className="absolute top-full left-0 right-0 z-50 py-1 rounded-b-lg overflow-hidden"
+            style={{ background: "var(--zd-sidebar)", borderTop: "1px solid var(--zd-sidebar-border)", boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}
+          >
+            {platforms.map(p => (
+              <button
+                key={p.id}
+                onClick={() => switchPlatform(p.slug)}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-white/10 transition-colors text-left"
+              >
+                <PlatformLogo platform={p} size={22} />
+                <span
+                  className="flex-1 text-sm font-medium truncate"
+                  style={{ color: p.slug === platform ? "white" : "var(--zd-sidebar-text)" }}
+                >
+                  {p.name}
+                </span>
+                {p.slug === platform && (
+                  <Check size={13} className="shrink-0 text-[#038153]" />
+                )}
+              </button>
+            ))}
+            {platforms.length === 0 && (
+              <div className="flex items-center gap-2 px-4 py-3 text-xs" style={{ color: "var(--zd-sidebar-text)" }}>
+                <Building2 size={13} />
+                No platforms found
+              </div>
+            )}
           </div>
         )}
       </div>
