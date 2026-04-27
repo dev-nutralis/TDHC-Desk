@@ -45,12 +45,12 @@ export async function GET() {
 
       processed++;
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[process-transcripts] failed for call ${call.id}:`, msg);
       await prisma.call.update({
         where: { id: call.id },
-        data: { transcript_status: "failed" },
+        data: { transcript_status: "failed", transcript: msg },
       });
-
-      console.error(`[process-transcripts] failed for call ${call.id}:`, err);
     }
   }
 

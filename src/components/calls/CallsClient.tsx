@@ -293,7 +293,12 @@ function CallDetailModal({ call, onClose }: { call: CallWithTranscript; onClose:
                 </div>
               )}
               {isFailed && (
-                <p className="text-sm text-red-500">Transcription failed</p>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-red-500">Transcription failed</p>
+                  {data.transcript && (
+                    <p className="text-xs text-red-400 font-mono break-all">{data.transcript}</p>
+                  )}
+                </div>
               )}
               {!isPending && !isFailed && !isDone && (
                 <p className="text-xs text-[#C2C8CC]">No transcript available</p>
