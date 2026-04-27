@@ -1,11 +1,26 @@
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
 
-function buildPrompt(language: string | null): string {
+interface CallInfo {
+  direction: string;       // "inbound" | "outbound"
+  caller_number: string;
+  callee_number: string;
+}
+
+function buildPrompt(language: string | null, callInfo?: CallInfo | null): string {
   const langInstruction = language
     ? `The call is in ${language}. Transcribe in that language.`
     : `The call may be in any language — detect it automatically.`;
 
-  return `You are analyzing a phone sales call recording. ${langInstruction}
+  let speakerInstruction = "";
+  if (callInfo) {
+    if (callInfo.direction === "inbound") {
+      speakerInstruction = `This is an INBOUND call. The caller (${callInfo.caller_number}) is the CUSTOMER. The callee (${callInfo.callee_number}) who answered is the AGENT.`;
+    } else {
+      speakerInstruction = `This is an OUTBOUND call. The caller (${callInfo.caller_number}) who initiated the call is the AGENT. The callee (${callInfo.callee_number}) is the CUSTOMER.`;
+    }
+  }
+
+  return `You are analyzing a phone sales call recording. ${langInstruction}${speakerInstruction ? " " + speakerInstruction : ""}
 Provide your response as JSON with exactly this structure:
 {
   "transcript": "Full verbatim transcript with speaker labels. Format each line as 'Agent: ...' or 'Customer: ...'",
@@ -19,7 +34,7 @@ Provide your response as JSON with exactly this structure:
 Return ONLY valid JSON, no markdown, no explanation.`;
 }
 
-export async function transcribeCallAudio(audioBuffer: Buffer, language?: string | null): Promise<{
+export async function transcribeCallAudio(audioBuffer: Buffer, language?: string | null, callInfo?: CallInfo | null): Promise<{
   transcript: string;
   summary: {
     outcome: string;
@@ -45,7 +60,7 @@ export async function transcribeCallAudio(audioBuffer: Buffer, language?: string
   const payload = JSON.stringify({
     contents: [{
       parts: [
-        { text: buildPrompt(language ?? null) },
+        { text: buildPrompt(language ?? null, callInfo ?? null) },
         { inline_data: { mime_type: "audio/wav", data: base64Audio } },
       ],
     }],

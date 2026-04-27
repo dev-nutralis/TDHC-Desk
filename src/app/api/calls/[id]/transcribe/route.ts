@@ -31,7 +31,10 @@ export async function POST(
       const platform = await prisma.platform.findUnique({ where: { id: call.platform_id } });
       transcriptionLanguage = platform?.transcription_language ?? null;
     }
-    const result = await transcribeCallAudio(audioBuffer, transcriptionLanguage);
+    const callInfo = (call.direction && call.caller_number && call.callee_number)
+      ? { direction: call.direction, caller_number: call.caller_number, callee_number: call.callee_number }
+      : null;
+    const result = await transcribeCallAudio(audioBuffer, transcriptionLanguage, callInfo);
 
     await prisma.call.update({
       where: { id: callId },
