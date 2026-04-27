@@ -77,7 +77,7 @@ export async function transcribeCallAudio(audioBuffer: Buffer, language?: string
     throw new Error(`Gemini response is not valid JSON. Raw text: ${rawText.slice(0, 500)}`);
   }
 
-  if (!parsed.transcript || !parsed.summary) {
+  if (!parsed.summary) {
     throw new Error(`Gemini JSON missing required fields. Parsed: ${JSON.stringify(parsed).slice(0, 500)}`);
   }
 
