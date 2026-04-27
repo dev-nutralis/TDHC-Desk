@@ -64,35 +64,45 @@ function RecordingPlayer({ callId }: { callId: string }) {
     setError(false);
     try {
       const res = await fetch(`/api/calls/${callId}/recording`);
-      if (!res.ok) throw new Error("fetch failed");
+      if (!res.ok) {
+        console.error("[RecordingPlayer] fetch failed:", res.status, res.statusText);
+        throw new Error(`HTTP ${res.status}`);
+      }
       const blob = await res.blob();
+      console.log("[RecordingPlayer] blob size:", blob.size, "type:", blob.type);
+      if (blob.size === 0) throw new Error("Empty blob");
+
       const url = URL.createObjectURL(blob);
       blobUrlRef.current = url;
 
-      const a = new Audio(url);
+      const a = new Audio();
       audioRef.current = a;
 
-      await new Promise<void>((resolve, reject) => {
-        a.onloadedmetadata = () => {
-          setDuration(a.duration);
-          resolve();
-        };
-        a.onerror = reject;
-        a.load();
-      });
-
+      a.onloadedmetadata = () => setDuration(a.duration);
       a.ontimeupdate = () => setCurrentTime(a.currentTime);
       a.onended = () => { setPlaying(false); setCurrentTime(0); a.currentTime = 0; };
+      a.onerror = (e) => console.error("[RecordingPlayer] audio error:", e);
+
+      a.src = url;
+      a.load();
 
       setLoaded(true);
-      await a.play();
-      setPlaying(true);
-    } catch {
+      setLoading(false);
+
+      const playPromise = a.play();
+      if (playPromise) {
+        playPromise
+          .then(() => setPlaying(true))
+          .catch((e) => console.error("[RecordingPlayer] play() rejected:", e));
+      }
+    } catch (e) {
+      console.error("[RecordingPlayer] load error:", e);
       setError(true);
-    } finally {
       setLoading(false);
     }
   }
+
+
 
   async function togglePlay() {
     if (!loaded) { await load(); return; }
