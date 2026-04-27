@@ -6,13 +6,27 @@ import { sendSms } from "@/lib/tg1600-client";
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const contact = await prisma.contact.findUnique({ where: { id }, select: { field_values: true } });
+    const fieldValues = contact?.field_values as Record<string, unknown> | null;
+    const phones = (fieldValues?.phones as { number: string }[] | undefined)
+      ?.map(p => p.number?.trim())
+      .filter(Boolean) ?? [];
+
     const [activities, calls] = await Promise.all([
       prisma.contactActivity.findMany({
         where: { contact_id: id },
         orderBy: { created_at: "asc" },
       }),
       prisma.call.findMany({
-        where: { contact_id: id },
+        where: {
+          OR: [
+            { contact_id: id },
+            ...(phones.length > 0 ? [
+              { caller_number: { in: phones } },
+              { callee_number: { in: phones } },
+            ] : []),
+          ],
+        },
         orderBy: { started_at: "asc" },
         select: {
           id: true,
