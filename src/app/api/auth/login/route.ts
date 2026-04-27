@@ -109,5 +109,15 @@ export async function POST(request: NextRequest) {
 
   await setSessionCookie(payload)
 
-  return NextResponse.json({ ok: true, role: user.role }, { status: 200 })
+  // Determine where to send the user after login
+  let redirectTo = "/login"
+  if (user.role === "super_admin") {
+    const firstPlatform = await prisma.platform.findFirst({ orderBy: { created_at: "asc" } })
+    redirectTo = firstPlatform ? `/${firstPlatform.slug}/leads` : "/login"
+  } else {
+    const firstPlatform = user.platforms[0]?.platform
+    redirectTo = firstPlatform ? `/${firstPlatform.slug}/leads` : "/login"
+  }
+
+  return NextResponse.json({ ok: true, redirectTo }, { status: 200 })
 }

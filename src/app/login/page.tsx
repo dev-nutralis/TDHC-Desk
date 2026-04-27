@@ -31,7 +31,7 @@ export default function LoginPage() {
         return
       }
 
-      router.push("/")
+      router.push(data.redirectTo ?? "/")
     } catch {
       setError("Network error. Please check your connection and try again.")
     } finally {
