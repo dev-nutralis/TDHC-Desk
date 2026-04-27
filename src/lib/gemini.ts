@@ -1,4 +1,4 @@
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
 
 const TRANSCRIPTION_PROMPT = `You are analyzing a phone sales call recording. The call may be in any language — detect it automatically.
 Provide your response as JSON with exactly this structure:
