@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
-import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone, Building2, ShieldCheck } from "lucide-react";
+import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone, Building2, ShieldCheck, CircleUserRound } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -23,6 +23,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   ];
 
   const preferencesTabs = [
+    { href: `/${platform}/settings/account`,      label: "My Account",  icon: CircleUserRound },
     { href: `/${platform}/settings/profile`,      label: "Profile",     icon: User },
     { href: `/${platform}/settings/deal-profile`, label: "Deal Layout", icon: Briefcase },
     { href: `/${platform}/settings/calendar`,     label: "Calendar",    icon: CalendarDays },
