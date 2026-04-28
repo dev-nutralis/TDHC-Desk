@@ -47,6 +47,7 @@ export default function Sidebar() {
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [session, setSession] = useState<{ role: string | null; platformIds: string[] }>({ role: null, platformIds: [] });
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -58,6 +59,12 @@ export default function Sidebar() {
       const stored = localStorage.getItem("sidebar_collapsed");
       if (stored !== null) setCollapsed(stored === "true");
     } catch { /* localStorage unavailable */ }
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then(r => r.json())
+      .then(data => setSession({ role: data.role ?? null, platformIds: data.platformIds ?? [] }));
   }, []);
 
   useEffect(() => {
@@ -89,6 +96,12 @@ export default function Sidebar() {
     router.push(`/${slug}/leads`);
   }
 
+  const isSuperAdmin = session.role === "super_admin";
+  const visiblePlatforms = isSuperAdmin
+    ? platforms
+    : platforms.filter(p => session.platformIds.includes(p.slug));
+  const canSwitch = visiblePlatforms.length > 1;
+
   const currentPlatform = platforms.find(p => p.slug === platform) ?? null;
   const displayName = currentPlatform?.name ?? platform;
 
@@ -107,11 +120,13 @@ export default function Sidebar() {
         style={{ borderBottom: "1px solid var(--zd-sidebar-border)" }}
       >
         <button
-          onClick={() => setDropdownOpen(prev => !prev)}
+          onClick={() => canSwitch && setDropdownOpen(prev => !prev)}
           className={cn(
-            "w-full h-14 flex items-center transition-colors hover:bg-white/5",
+            "w-full h-14 flex items-center transition-colors",
+            canSwitch && "hover:bg-white/5",
             collapsed ? "justify-center px-0" : "px-4 gap-2"
           )}
+          style={{ cursor: canSwitch ? "pointer" : "default" }}
         >
           {collapsed ? (
             <span className="text-white text-sm font-bold">
@@ -122,22 +137,24 @@ export default function Sidebar() {
               <span className="text-white text-[15px] font-bold leading-tight truncate flex-1 text-left">
                 {displayName}
               </span>
-              <ChevronDown
-                size={13}
-                strokeWidth={2}
-                className={cn("shrink-0 text-white/50 transition-transform", dropdownOpen && "rotate-180")}
-              />
+              {canSwitch && (
+                <ChevronDown
+                  size={13}
+                  strokeWidth={2}
+                  className={cn("shrink-0 text-white/50 transition-transform", dropdownOpen && "rotate-180")}
+                />
+              )}
             </>
           )}
         </button>
 
         {/* Dropdown */}
-        {dropdownOpen && !collapsed && (
+        {dropdownOpen && canSwitch && !collapsed && (
           <div
             className="absolute top-full left-0 right-0 z-50 py-1 rounded-b-lg overflow-hidden"
             style={{ background: "var(--zd-sidebar)", borderTop: "1px solid var(--zd-sidebar-border)", boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}
           >
-            {platforms.map(p => (
+            {visiblePlatforms.map(p => (
               <button
                 key={p.id}
                 onClick={() => switchPlatform(p.slug)}
@@ -154,12 +171,6 @@ export default function Sidebar() {
                 )}
               </button>
             ))}
-            {platforms.length === 0 && (
-              <div className="flex items-center gap-2 px-4 py-3 text-xs" style={{ color: "var(--zd-sidebar-text)" }}>
-                <Building2 size={13} />
-                No platforms found
-              </div>
-            )}
           </div>
         )}
       </div>
