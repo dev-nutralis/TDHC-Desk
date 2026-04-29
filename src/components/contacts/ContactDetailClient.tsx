@@ -215,7 +215,7 @@ export default function ContactDetailClient({ contact: initial, fields, profileC
         const emails: EmailEntry[] = Array.isArray(rawEmail)
           ? (rawEmail as EmailEntry[])
           : typeof rawEmail === "string" && rawEmail
-            ? [{ address: rawEmail }]
+            ? [{ address: rawEmail, is_main: false, note: "" }]
             : [];
         if (emails.length === 0) {
           return <p className="text-sm text-[#C2C8CC]">No emails added</p>;
