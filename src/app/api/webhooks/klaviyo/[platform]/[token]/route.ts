@@ -15,7 +15,8 @@ function extractProfile(body: unknown): Record<string, unknown> {
 }
 
 // Reads a single value from a profile using a klaviyo_field key.
-// Supports top-level standard fields and "properties.xxx" custom properties.
+// Supports: top-level fields, "properties.xxx" custom properties, and "$xxx" virtual fields.
+// Virtual fields are resolved separately via resolveVirtualField().
 function readProfileField(
   profile: Record<string, unknown>,
   klaviyoField: string
@@ -26,6 +27,26 @@ function readProfileField(
     return String(properties?.[prop] ?? "").trim();
   }
   return String(profile[klaviyoField] ?? "").trim();
+}
+
+// Resolves virtual $fields that come from server-side context, not the Klaviyo profile.
+function resolveVirtualField(klaviyoField: string, formName: string): string | null {
+  if (klaviyoField === "$form_name") return formName;
+  return null;
+}
+
+// Interpolates a template string like "{$form_name} - {first_name} {last_name}"
+// replacing each {key} with its resolved value.
+function interpolateTemplate(
+  template: string,
+  profile: Record<string, unknown>,
+  formName: string
+): string {
+  return template.replace(/\{([^}]+)\}/g, (_, key: string) => {
+    const virtual = resolveVirtualField(key.trim(), formName);
+    if (virtual !== null) return virtual;
+    return readProfileField(profile, key.trim());
+  }).trim();
 }
 
 // Applies an optional transform to a raw field value.
@@ -68,9 +89,9 @@ export async function POST(
     console.log("[klaviyo webhook] extracted profile:", JSON.stringify(profile));
 
     // 3. Resolve mappings
-    const mappings = (
-      form.mappings as { klaviyo_field: string; contact_field_key: string; transform?: string }[]
-    ) ?? [];
+    type Mapping = { klaviyo_field: string; contact_field_key: string; transform?: string; static_value?: string };
+    const mappings = (form.mappings as Mapping[]) ?? [];
+    const dealMappings = (form.deal_mappings as Mapping[]) ?? [];
 
     let fieldValues: Record<string, unknown> = {};
 
@@ -82,13 +103,14 @@ export async function POST(
     }
 
     if (mappings.length > 0) {
-      // Use explicit mappings to build contact field_values
-      for (const { klaviyo_field, contact_field_key, transform } of mappings) {
-        const raw = readProfileField(profile, klaviyo_field);
+      for (const { klaviyo_field, contact_field_key, transform, static_value } of mappings) {
+        const raw = static_value !== undefined && static_value !== ""
+          ? static_value
+          : klaviyo_field.includes("{")
+            ? interpolateTemplate(klaviyo_field, profile, form.name)
+            : resolveVirtualField(klaviyo_field, form.name) ?? readProfileField(profile, klaviyo_field);
         const value = applyTransform(raw, transform);
-        if (value) {
-          fieldValues[contact_field_key] = value;
-        }
+        if (value) fieldValues[contact_field_key] = value;
       }
     } else {
       // Fallback: auto-detect standard fields so existing forms without mappings still work
@@ -140,7 +162,45 @@ export async function POST(
       });
     }
 
-    // 6. Return success
+    // 6. Optionally create a deal
+    if (form.create_deal) {
+      // Find the contact we just created/updated
+      const contact = await prisma.$queryRawUnsafe<{ id: string; user_id: string }[]>(
+        `SELECT id, user_id FROM "Contact" WHERE field_values->>'email' = $1 AND platform_id = $2 LIMIT 1`,
+        email,
+        platform_id
+      );
+
+      // Also check by emails key (Klaviyo stores under mapped key)
+      const contactRow = contact[0] ?? (await prisma.$queryRawUnsafe<{ id: string; user_id: string }[]>(
+        `SELECT id, user_id FROM "Contact" WHERE platform_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        platform_id
+      ))[0];
+
+      if (contactRow) {
+        const dealFieldValues: Record<string, unknown> = {};
+        for (const { klaviyo_field, contact_field_key, transform, static_value } of dealMappings) {
+          const raw = static_value !== undefined && static_value !== ""
+            ? static_value
+            : klaviyo_field.includes("{")
+              ? interpolateTemplate(klaviyo_field, profile, form.name)
+              : resolveVirtualField(klaviyo_field, form.name) ?? readProfileField(profile, klaviyo_field);
+          const value = applyTransform(raw, transform);
+          if (value) dealFieldValues[contact_field_key] = value;
+        }
+
+        await prisma.deal.create({
+          data: {
+            contact_id: contactRow.id,
+            user_id: contactRow.user_id,
+            platform_id,
+            field_values: dealFieldValues as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
+
+    // 7. Return success
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[POST /api/webhooks/klaviyo]", err);

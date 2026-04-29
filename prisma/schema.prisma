@@ -20,13 +20,15 @@ model Platform {
 }
 
 model KlaviyoForm {
-  id          String   @id @default(uuid())
-  platform_id String
-  name        String
-  token       String   @unique
-  mappings    Json     @default("[]")
-  created_at  DateTime @default(now())
-  platform    Platform @relation(fields: [platform_id], references: [id], onDelete: Cascade)
+  id            String   @id @default(uuid())
+  platform_id   String
+  name          String
+  token         String   @unique
+  mappings      Json     @default("[]")
+  create_deal   Boolean  @default(false)
+  deal_mappings Json     @default("[]")
+  created_at    DateTime @default(now())
+  platform      Platform @relation(fields: [platform_id], references: [id], onDelete: Cascade)
 }
 
 model User {

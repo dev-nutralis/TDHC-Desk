@@ -9,20 +9,27 @@ export async function PATCH(
   const { formId } = await params;
   try {
     const body = await req.json();
-    const { mappings } = body as {
-      mappings?: { klaviyo_field: string; contact_field_key: string }[];
+    const { mappings, create_deal, deal_mappings } = body as {
+      mappings?: { klaviyo_field: string; contact_field_key: string; transform?: string }[];
+      create_deal?: boolean;
+      deal_mappings?: { klaviyo_field: string; contact_field_key: string; transform?: string }[];
     };
 
-    if (!Array.isArray(mappings)) {
-      return NextResponse.json(
-        { error: "mappings must be an array" },
-        { status: 400 }
-      );
+    if (mappings !== undefined && !Array.isArray(mappings)) {
+      return NextResponse.json({ error: "mappings must be an array" }, { status: 400 });
     }
+    if (deal_mappings !== undefined && !Array.isArray(deal_mappings)) {
+      return NextResponse.json({ error: "deal_mappings must be an array" }, { status: 400 });
+    }
+
+    const data: Record<string, unknown> = {};
+    if (mappings !== undefined) data.mappings = mappings;
+    if (create_deal !== undefined) data.create_deal = create_deal;
+    if (deal_mappings !== undefined) data.deal_mappings = deal_mappings;
 
     const updatedForm = await prisma.klaviyoForm.update({
       where: { id: formId },
-      data: { mappings },
+      data,
     });
 
     return NextResponse.json({ ok: true, form: updatedForm });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus,
   Trash2,
@@ -23,6 +23,7 @@ interface FieldMapping {
   klaviyo_field: string;
   contact_field_key: string;
   transform?: TransformType;
+  static_value?: string;
 }
 
 interface KlaviyoForm {
@@ -32,12 +33,21 @@ interface KlaviyoForm {
   created_at: string;
   platform_id: string;
   mappings: FieldMapping[];
+  create_deal: boolean;
+  deal_mappings: FieldMapping[];
+}
+
+interface FieldOption {
+  value: string;
+  label: string;
 }
 
 interface ContactField {
   id: string;
   field_key: string;
   label: string;
+  field_type?: string;
+  options?: FieldOption[];
 }
 
 interface Platform {
@@ -52,7 +62,234 @@ const KLAVIYO_SUGGESTIONS = [
   "last_name",
   "phone_number",
   "organization",
+  "$form_name",
+  "{first_name}",
+  "{last_name}",
+  "{email}",
+  "{$form_name}",
+  "{first_name} {last_name}",
+  "{$form_name} - {first_name} {last_name}",
 ];
+
+// ── Template token preview ────────────────────────────────────────────────────
+
+const VARIABLE_CHIPS = [
+  { label: "first_name", value: "{first_name}" },
+  { label: "last_name",  value: "{last_name}" },
+  { label: "email",      value: "{email}" },
+  { label: "phone",      value: "{phone_number}" },
+  { label: "form name",  value: "{$form_name}" },
+];
+
+function parseTemplate(template: string): { type: "text" | "var"; content: string }[] {
+  const parts: { type: "text" | "var"; content: string }[] = [];
+  const regex = /\{([^}]+)\}/g;
+  let last = 0;
+  let match;
+  while ((match = regex.exec(template)) !== null) {
+    if (match.index > last) parts.push({ type: "text", content: template.slice(last, match.index) });
+    parts.push({ type: "var", content: match[1] });
+    last = match.index + match[0].length;
+  }
+  if (last < template.length) parts.push({ type: "text", content: template.slice(last) });
+  return parts;
+}
+
+function TemplateInput({
+  value,
+  datalistId,
+  onChange,
+}: {
+  value: string;
+  datalistId: string;
+  onChange: (v: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isTemplate = value.includes("{");
+  const tokens = isTemplate ? parseTemplate(value) : [];
+
+  const insertVariable = (chip: string) => {
+    const el = inputRef.current;
+    if (!el) { onChange(value + chip); return; }
+    const start = el.selectionStart ?? value.length;
+    const end   = el.selectionEnd   ?? value.length;
+    const next = value.slice(0, start) + chip + value.slice(end);
+    onChange(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + chip.length, start + chip.length);
+    });
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <input
+        ref={inputRef}
+        type="text"
+        list={datalistId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="first_name or {first_name} {last_name}"
+        className="w-full h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] placeholder-[#C2C8CC] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] transition-colors font-mono"
+      />
+
+      {/* Variable chip buttons */}
+      <div className="flex flex-wrap gap-1">
+        {VARIABLE_CHIPS.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => insertVariable(c.value)}
+            className="h-5 px-2 text-[10px] rounded-full border border-[#038153]/40 text-[#038153] bg-[#EAF7F0] hover:bg-[#038153] hover:text-white transition-colors"
+          >
+            + {c.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Live preview */}
+      {isTemplate && tokens.length > 0 && (
+        <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 rounded-md bg-white border border-[#D8DCDE] min-h-[28px]">
+          {tokens.map((t, i) =>
+            t.type === "var" ? (
+              <span key={i} className="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-medium bg-[#EAF7F0] text-[#038153] border border-[#038153]/30">
+                {t.content}
+              </span>
+            ) : (
+              <span key={i} className="text-[11px] text-[#68717A]">{t.content}</span>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Generic MappingRows (shared between contact and deal editors) ──────────────
+
+function MappingRows({
+  mappings,
+  fields,
+  loadingFields,
+  datalistId,
+  showTransform = false,
+  showStaticValue = false,
+  onUpdate,
+  onRemove,
+}: {
+  mappings: FieldMapping[];
+  fields: ContactField[];
+  loadingFields: boolean;
+  datalistId: string;
+  showTransform?: boolean;
+  showStaticValue?: boolean;
+  onUpdate: (index: number, field: keyof FieldMapping, value: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  const colCount = 2 + (showTransform ? 1 : 0) + (showStaticValue ? 1 : 0);
+  const cols = colCount === 4
+    ? "grid-cols-[1fr_auto_1fr_1fr_auto]"
+    : colCount === 3
+      ? "grid-cols-[1fr_auto_1fr_auto]"
+      : "grid-cols-[1fr_auto_1fr_1fr_1fr_auto]";
+
+  return (
+    <div className="space-y-2">
+      {mappings.length > 0 && (
+        <div className={`grid ${cols} gap-2 items-center`}>
+          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Klaviyo field</span>
+          <span />
+          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Field</span>
+          {showTransform && <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Transform</span>}
+          {showStaticValue && <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Fixed value</span>}
+          <span />
+        </div>
+      )}
+      {mappings.map((mapping, i) => {
+        const selectedField = fields.find((f) => f.field_key === mapping.contact_field_key);
+        const isSelect = selectedField?.field_type === "select" || selectedField?.field_type === "radio";
+        const hasOptions = isSelect && (selectedField?.options?.length ?? 0) > 0;
+
+        const hideKlaviyoField = showStaticValue && isSelect;
+
+        return (
+          <div key={i} className={`grid ${cols} gap-2 items-start`}>
+            {hideKlaviyoField ? (
+              <div className="h-8 flex items-center px-3 rounded-md border border-[#D8DCDE] bg-[#F3F4F6]">
+                <span className="text-xs text-[#C2C8CC]">Fixed value only</span>
+              </div>
+            ) : (
+              <TemplateInput
+                value={mapping.klaviyo_field}
+                datalistId={datalistId}
+                onChange={(v) => onUpdate(i, "klaviyo_field", v)}
+              />
+            )}
+            <span className="text-[#C2C8CC] text-xs select-none">→</span>
+            <div className="relative">
+              <select
+                value={mapping.contact_field_key}
+                onChange={(e) => onUpdate(i, "contact_field_key", e.target.value)}
+                className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+              >
+                <option value="">{loadingFields ? "Loading…" : "Select field"}</option>
+                {fields.map((f) => (
+                  <option key={f.field_key} value={f.field_key}>{f.label} ({f.field_key})</option>
+                ))}
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+            </div>
+            {showTransform && (
+              <div className="relative">
+                <select
+                  value={mapping.transform ?? ""}
+                  onChange={(e) => onUpdate(i, "transform", e.target.value)}
+                  className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+                >
+                  <option value="">None</option>
+                  <option value="split_name_first">Split name → First</option>
+                  <option value="split_name_last">Split name → Last</option>
+                </select>
+                <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+              </div>
+            )}
+            {showStaticValue && (
+              hasOptions ? (
+                <div className="relative">
+                  <select
+                    value={mapping.static_value ?? ""}
+                    onChange={(e) => onUpdate(i, "static_value", e.target.value)}
+                    className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+                  >
+                    <option value="">— none —</option>
+                    {selectedField!.options!.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={mapping.static_value ?? ""}
+                  onChange={(e) => onUpdate(i, "static_value", e.target.value)}
+                  placeholder="Fixed value"
+                  className="h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] placeholder-[#C2C8CC] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] transition-colors"
+                />
+              )
+            )}
+            <button onClick={() => onRemove(i)} title="Remove" className="w-7 h-7 flex items-center justify-center rounded-md text-[#68717A] hover:bg-[#FFF0F1] hover:text-[#CC3340] transition-colors">
+              <Trash2 size={13} />
+            </button>
+          </div>
+        );
+      })}
+      {mappings.length === 0 && (
+        <p className="text-xs text-[#C2C8CC] text-center py-2">No mappings yet.</p>
+      )}
+    </div>
+  );
+}
 
 // ── MappingEditor ─────────────────────────────────────────────────────────────
 
@@ -65,10 +302,11 @@ function MappingEditor({
   onClose: () => void;
   onSaved: (updatedForm: KlaviyoForm) => void;
 }) {
-  const [mappings, setMappings] = useState<FieldMapping[]>(
-    form.mappings?.length ? form.mappings : []
-  );
+  const [mappings, setMappings] = useState<FieldMapping[]>(form.mappings ?? []);
+  const [dealMappings, setDealMappings] = useState<FieldMapping[]>(form.deal_mappings ?? []);
+  const [createDeal, setCreateDeal] = useState<boolean>(form.create_deal ?? false);
   const [contactFields, setContactFields] = useState<ContactField[]>([]);
+  const [dealFields, setDealFields] = useState<ContactField[]>([]);
   const [loadingFields, setLoadingFields] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -78,12 +316,18 @@ function MappingEditor({
     const fetchFields = async () => {
       setLoadingFields(true);
       try {
-        const res = await fetch("/api/contact-fields");
-        if (!res.ok) throw new Error("Failed to load contact fields");
-        const data = (await res.json()) as ContactField[];
-        if (!cancelled) setContactFields(data);
+        const [cRes, dRes] = await Promise.all([
+          fetch("/api/contact-fields"),
+          fetch("/api/deal-fields"),
+        ]);
+        const cData = cRes.ok ? (await cRes.json()) as ContactField[] : [];
+        const dData = dRes.ok ? (await dRes.json()) as ContactField[] : [];
+        if (!cancelled) {
+          setContactFields(cData);
+          setDealFields(dData);
+        }
       } catch {
-        // silently fail — user can still type field_key manually
+        // silently fail
       } finally {
         if (!cancelled) setLoadingFields(false);
       }
@@ -92,19 +336,15 @@ function MappingEditor({
     return () => { cancelled = true; };
   }, []);
 
-  const addRow = () => {
-    setMappings((prev) => [...prev, { klaviyo_field: "", contact_field_key: "" }]);
-  };
+  const updateContactRow = (i: number, field: keyof FieldMapping, value: string) =>
+    setMappings((prev) => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+  const removeContactRow = (i: number) =>
+    setMappings((prev) => prev.filter((_, idx) => idx !== i));
 
-  const removeRow = (index: number) => {
-    setMappings((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const updateRow = (index: number, field: keyof FieldMapping, value: string) => {
-    setMappings((prev) =>
-      prev.map((m, i) => (i === index ? { ...m, [field]: value } : m))
-    );
-  };
+  const updateDealRow = (i: number, field: keyof FieldMapping, value: string) =>
+    setDealMappings((prev) => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+  const removeDealRow = (i: number) =>
+    setDealMappings((prev) => prev.filter((_, idx) => idx !== i));
 
   const handleSave = async () => {
     setSaving(true);
@@ -113,17 +353,17 @@ function MappingEditor({
       const res = await fetch(`/api/klaviyo-forms/${form.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mappings }),
+        body: JSON.stringify({ mappings, create_deal: createDeal, deal_mappings: dealMappings }),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
-        throw new Error(body.error ?? "Failed to save mappings");
+        throw new Error(body.error ?? "Failed to save");
       }
       const { form: updatedForm } = (await res.json()) as { form: KlaviyoForm };
       onSaved(updatedForm);
       onClose();
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save mappings");
+      setSaveError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -132,108 +372,72 @@ function MappingEditor({
   const datalistId = `klaviyo-suggestions-${form.id}`;
 
   return (
-    <div className="mt-2 border border-[#D8DCDE] rounded-lg bg-[#F8F9F9] p-4 space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-[#2F3941] uppercase tracking-wide">
-          Field Mappings
-        </p>
+    <div className="mt-2 border border-[#D8DCDE] rounded-lg bg-[#F8F9F9] p-4 space-y-4">
+      <datalist id={datalistId}>
+        {KLAVIYO_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
+      </datalist>
+
+      {/* ── Contact field mappings ── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-[#2F3941] uppercase tracking-wide">Contact Fields</p>
+          <button onClick={onClose} className="text-[#68717A] hover:text-[#2F3941] transition-colors" title="Close">
+            <X size={13} />
+          </button>
+        </div>
+        <MappingRows
+          mappings={mappings}
+          fields={contactFields}
+          loadingFields={loadingFields}
+          datalistId={datalistId}
+          showTransform
+          onUpdate={updateContactRow}
+          onRemove={removeContactRow}
+        />
         <button
-          onClick={onClose}
-          className="text-[#68717A] hover:text-[#2F3941] transition-colors"
-          title="Close"
+          onClick={() => setMappings((p) => [...p, { klaviyo_field: "", contact_field_key: "" }])}
+          className="flex items-center gap-1 text-xs text-[#038153] font-medium hover:underline"
         >
-          <X size={13} />
+          <Plus size={12} /> Add mapping
         </button>
       </div>
 
-      {/* Datalist for Klaviyo field suggestions */}
-      <datalist id={datalistId}>
-        {KLAVIYO_SUGGESTIONS.map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
-
-      {/* Column labels */}
-      {mappings.length > 0 && (
-        <div className="grid grid-cols-[1fr_auto_1fr_1fr_auto] gap-2 items-center">
-          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Klaviyo field</span>
-          <span />
-          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Contact field</span>
-          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Transform</span>
-          <span />
-        </div>
-      )}
-
-      {/* Mapping rows */}
-      <div className="space-y-2">
-        {mappings.map((mapping, i) => (
-          <div
-            key={i}
-            className="grid grid-cols-[1fr_auto_1fr_1fr_auto] gap-2 items-center"
+      {/* ── Deal creation toggle ── */}
+      <div className="border-t border-[#D8DCDE] pt-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-[#2F3941] uppercase tracking-wide">Auto-create Deal</p>
+            <p className="text-[11px] text-[#68717A] mt-0.5">Create a deal for every form submission</p>
+          </div>
+          <button
+            onClick={() => setCreateDeal((v) => !v)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${createDeal ? "bg-[#038153]" : "bg-[#D8DCDE]"}`}
           >
-            {/* Klaviyo field */}
-            <input
-              type="text"
-              list={datalistId}
-              value={mapping.klaviyo_field}
-              onChange={(e) => updateRow(i, "klaviyo_field", e.target.value)}
-              placeholder="e.g. email or properties.city"
-              className="h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] placeholder-[#C2C8CC] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] transition-colors"
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${createDeal ? "translate-x-4" : "translate-x-0.5"}`} />
+          </button>
+        </div>
+
+        {createDeal && (
+          <div className="space-y-2">
+            <p className="text-[11px] font-medium text-[#68717A] uppercase tracking-wide">Deal Field Mappings</p>
+            <MappingRows
+              mappings={dealMappings}
+              fields={dealFields}
+              loadingFields={loadingFields}
+              datalistId={datalistId}
+              showStaticValue
+              onUpdate={updateDealRow}
+              onRemove={removeDealRow}
             />
-
-            {/* Arrow */}
-            <span className="text-[#C2C8CC] text-xs select-none">→</span>
-
-            {/* Contact field */}
-            <div className="relative">
-              <select
-                value={mapping.contact_field_key}
-                onChange={(e) => updateRow(i, "contact_field_key", e.target.value)}
-                className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
-              >
-                <option value="">{loadingFields ? "Loading…" : "Select field"}</option>
-                {contactFields.map((f) => (
-                  <option key={f.field_key} value={f.field_key}>
-                    {f.label} ({f.field_key})
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
-            </div>
-
-            {/* Transform */}
-            <div className="relative">
-              <select
-                value={mapping.transform ?? ""}
-                onChange={(e) => updateRow(i, "transform", e.target.value)}
-                className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
-              >
-                <option value="">None</option>
-                <option value="split_name_first">Split name → First</option>
-                <option value="split_name_last">Split name → Last</option>
-              </select>
-              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
-            </div>
-
-            {/* Delete row */}
             <button
-              onClick={() => removeRow(i)}
-              title="Remove mapping"
-              className="w-7 h-7 flex items-center justify-center rounded-md text-[#68717A] hover:bg-[#FFF0F1] hover:text-[#CC3340] transition-colors"
+              onClick={() => setDealMappings((p) => [...p, { klaviyo_field: "", contact_field_key: "" }])}
+              className="flex items-center gap-1 text-xs text-[#038153] font-medium hover:underline"
             >
-              <Trash2 size={13} />
+              <Plus size={12} /> Add deal mapping
             </button>
           </div>
-        ))}
+        )}
       </div>
-
-      {/* Empty state */}
-      {mappings.length === 0 && (
-        <p className="text-xs text-[#C2C8CC] text-center py-2">
-          No mappings yet. Add one below.
-        </p>
-      )}
 
       {/* Error */}
       {saveError && (
@@ -243,32 +447,20 @@ function MappingEditor({
         </div>
       )}
 
-      {/* Footer actions */}
-      <div className="flex items-center justify-between pt-1">
-        <button
-          onClick={addRow}
-          className="flex items-center gap-1 text-xs text-[#038153] font-medium hover:underline transition-all"
-        >
-          <Plus size={12} /> Add mapping
+      {/* Footer */}
+      <div className="flex justify-end gap-2 pt-1 border-t border-[#D8DCDE]">
+        <button onClick={onClose} className="h-7 px-3 text-xs rounded-md border border-[#D8DCDE] text-[#68717A] hover:bg-[#F3F4F6] transition-colors">
+          Cancel
         </button>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onClose}
-            className="h-7 px-3 text-xs rounded-md border border-[#D8DCDE] text-[#68717A] hover:bg-[#F3F4F6] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 h-7 px-3 text-xs rounded-md text-white hover:brightness-110 disabled:opacity-50 transition-all"
-            style={{ background: "#038153" }}
-          >
-            {saving && <Loader2 size={11} className="animate-spin" />}
-            Save
-          </button>
-        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-1.5 h-7 px-3 text-xs rounded-md text-white hover:brightness-110 disabled:opacity-50 transition-all"
+          style={{ background: "#038153" }}
+        >
+          {saving && <Loader2 size={11} className="animate-spin" />}
+          Save
+        </button>
       </div>
     </div>
   );
