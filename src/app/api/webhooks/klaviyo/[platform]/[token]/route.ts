@@ -54,7 +54,9 @@ export async function POST(
 
     // 2. Parse Klaviyo payload and extract a flat profile
     const body = await req.json();
+    console.log("[klaviyo webhook] raw body:", JSON.stringify(body));
     const profile = extractProfile(body);
+    console.log("[klaviyo webhook] extracted profile:", JSON.stringify(profile));
 
     // 3. Resolve mappings
     const mappings = (
@@ -74,6 +76,7 @@ export async function POST(
 
       // email mapping is required
       if (!fieldValues.email) {
+        console.log("[klaviyo webhook] mappings:", JSON.stringify(mappings), "fieldValues:", JSON.stringify(fieldValues));
         return NextResponse.json(
           { error: "email is required — check your form mappings" },
           { status: 400 }
