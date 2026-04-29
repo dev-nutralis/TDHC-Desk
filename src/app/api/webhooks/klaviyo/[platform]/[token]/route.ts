@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 // Extracts the flat profile object from all known Klaviyo payload formats.
@@ -116,7 +117,7 @@ export async function POST(
 
       await prisma.contact.update({
         where: { id: existing[0].id },
-        data: { field_values: updated },
+        data: { field_values: updated as Prisma.InputJsonValue },
       });
     } else {
       // 5b. Create new contact — user_id is required by schema, use the first available user
@@ -127,7 +128,7 @@ export async function POST(
 
       await prisma.contact.create({
         data: {
-          field_values: fieldValues,
+          field_values: fieldValues as Prisma.InputJsonValue,
           platform_id,
           user_id: defaultUser.id,
         },
