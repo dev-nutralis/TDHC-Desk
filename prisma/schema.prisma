@@ -7,15 +7,26 @@ datasource db {
 }
 
 model Platform {
-  id                     String         @id @default(uuid())
+  id                     String          @id @default(uuid())
   name                   String
-  slug                   String         @unique
+  slug                   String          @unique
   logo_url               String?
   website_url            String?
   transcription_language String?
-  created_at             DateTime       @default(now())
-  updated_at             DateTime       @updatedAt
+  created_at             DateTime        @default(now())
+  updated_at             DateTime        @updatedAt
   users                  UserPlatform[]
+  klaviyo_forms          KlaviyoForm[]
+}
+
+model KlaviyoForm {
+  id          String   @id @default(uuid())
+  platform_id String
+  name        String
+  token       String   @unique
+  mappings    Json     @default("[]")
+  created_at  DateTime @default(now())
+  platform    Platform @relation(fields: [platform_id], references: [id], onDelete: Cascade)
 }
 
 model User {
