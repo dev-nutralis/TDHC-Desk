@@ -185,7 +185,7 @@ export default function ContactDetailClient({ contact: initial, fields, profileC
         const phones: PhoneEntry[] = Array.isArray(raw)
           ? (raw as PhoneEntry[])
           : typeof raw === "string" && raw
-            ? [{ number: raw }]
+            ? [{ number: raw, note: "" }]
             : [];
         if (phones.length === 0) {
           return <p className="text-sm text-[#C2C8CC]">No phone numbers added</p>;
