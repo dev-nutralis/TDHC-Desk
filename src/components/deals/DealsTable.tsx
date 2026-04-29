@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Search, Plus, Loader2, Briefcase, MoreHorizontal, Trash2, UserCircle2, Check, X, Link2, Pencil, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
@@ -305,6 +305,7 @@ function EditableCell({ field, deal, onSave }: { field: DealField; deal: Deal; o
 function DealNameCell({ field, deal, onSave }: { field: DealField; deal: Deal; onSave: (fieldKey: string, value: unknown) => Promise<void> }) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const cellRef = useRef<HTMLDivElement>(null);
+  const { platform } = useParams() as { platform: string };
   const raw  = deal.field_values?.[field.field_key];
   const name = (raw as string)?.trim() || "—";
 
@@ -320,7 +321,7 @@ function DealNameCell({ field, deal, onSave }: { field: DealField; deal: Deal; o
     <>
       <div ref={cellRef} className="group/name flex items-center gap-1 min-w-0">
         <Link
-          href={`/deals/${deal.id}`}
+          href={`/${platform}/deals/${deal.id}`}
           onClick={e => e.stopPropagation()}
           className="text-sm font-medium text-[#2F3941] hover:text-[#038153] hover:underline truncate transition-colors"
         >
@@ -393,6 +394,8 @@ function loadColWidths(): Record<string, number> {
 
 export default function DealsTable({ defaultUserId }: { defaultUserId: string }) {
   const router = useRouter();
+  const params = useParams();
+  const platform = (params?.platform as string) ?? "";
   const [data, setData]           = useState<DealsResponse | null>(null);
   const [fields, setFields]       = useState<DealField[]>([]);
   const [fieldsLoading, setFl]    = useState(true);

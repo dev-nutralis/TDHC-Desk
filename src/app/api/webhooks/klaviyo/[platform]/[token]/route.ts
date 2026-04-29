@@ -28,6 +28,15 @@ function readProfileField(
   return String(profile[klaviyoField] ?? "").trim();
 }
 
+// Applies an optional transform to a raw field value.
+function applyTransform(value: string, transform: string | undefined): string {
+  if (!transform || !value) return value;
+  const parts = value.trim().split(/\s+/);
+  if (transform === "split_name_first") return parts[0] ?? value;
+  if (transform === "split_name_last") return parts.length > 1 ? parts.slice(1).join(" ") : "";
+  return value;
+}
+
 const STANDARD_FALLBACK_FIELDS = ["email", "first_name", "last_name", "phone_number"] as const;
 
 // POST /api/webhooks/klaviyo/[platform]/[token]
@@ -60,7 +69,7 @@ export async function POST(
 
     // 3. Resolve mappings
     const mappings = (
-      form.mappings as { klaviyo_field: string; contact_field_key: string }[]
+      form.mappings as { klaviyo_field: string; contact_field_key: string; transform?: string }[]
     ) ?? [];
 
     let fieldValues: Record<string, unknown> = {};
@@ -74,8 +83,9 @@ export async function POST(
 
     if (mappings.length > 0) {
       // Use explicit mappings to build contact field_values
-      for (const { klaviyo_field, contact_field_key } of mappings) {
-        const value = readProfileField(profile, klaviyo_field);
+      for (const { klaviyo_field, contact_field_key, transform } of mappings) {
+        const raw = readProfileField(profile, klaviyo_field);
+        const value = applyTransform(raw, transform);
         if (value) {
           fieldValues[contact_field_key] = value;
         }

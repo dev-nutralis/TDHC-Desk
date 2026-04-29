@@ -181,7 +181,12 @@ export default function ContactDetailClient({ contact: initial, fields, profileC
 
     switch (field_type) {
       case "multi_phone": {
-        const phones = (fv[field_key] as PhoneEntry[] | undefined) ?? [];
+        const raw = fv[field_key];
+        const phones: PhoneEntry[] = Array.isArray(raw)
+          ? (raw as PhoneEntry[])
+          : typeof raw === "string" && raw
+            ? [{ number: raw }]
+            : [];
         if (phones.length === 0) {
           return <p className="text-sm text-[#C2C8CC]">No phone numbers added</p>;
         }
@@ -206,7 +211,12 @@ export default function ContactDetailClient({ contact: initial, fields, profileC
       }
 
       case "multi_email": {
-        const emails = (fv[field_key] as EmailEntry[] | undefined) ?? [];
+        const rawEmail = fv[field_key];
+        const emails: EmailEntry[] = Array.isArray(rawEmail)
+          ? (rawEmail as EmailEntry[])
+          : typeof rawEmail === "string" && rawEmail
+            ? [{ address: rawEmail }]
+            : [];
         if (emails.length === 0) {
           return <p className="text-sm text-[#C2C8CC]">No emails added</p>;
         }

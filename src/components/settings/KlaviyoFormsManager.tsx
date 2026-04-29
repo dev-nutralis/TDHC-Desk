@@ -17,9 +17,12 @@ import { useParams } from "next/navigation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type TransformType = "" | "split_name_first" | "split_name_last";
+
 interface FieldMapping {
   klaviyo_field: string;
   contact_field_key: string;
+  transform?: TransformType;
 }
 
 interface KlaviyoForm {
@@ -153,14 +156,11 @@ function MappingEditor({
 
       {/* Column labels */}
       {mappings.length > 0 && (
-        <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center">
-          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">
-            Klaviyo field
-          </span>
+        <div className="grid grid-cols-[1fr_auto_1fr_1fr_auto] gap-2 items-center">
+          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Klaviyo field</span>
           <span />
-          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">
-            Contact field
-          </span>
+          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Contact field</span>
+          <span className="text-[10px] font-medium text-[#68717A] uppercase tracking-wide">Transform</span>
           <span />
         </div>
       )}
@@ -170,9 +170,9 @@ function MappingEditor({
         {mappings.map((mapping, i) => (
           <div
             key={i}
-            className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center"
+            className="grid grid-cols-[1fr_auto_1fr_1fr_auto] gap-2 items-center"
           >
-            {/* Klaviyo field — text input + datalist */}
+            {/* Klaviyo field */}
             <input
               type="text"
               list={datalistId}
@@ -185,26 +185,35 @@ function MappingEditor({
             {/* Arrow */}
             <span className="text-[#C2C8CC] text-xs select-none">→</span>
 
-            {/* Contact field — select */}
+            {/* Contact field */}
             <div className="relative">
               <select
                 value={mapping.contact_field_key}
                 onChange={(e) => updateRow(i, "contact_field_key", e.target.value)}
                 className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
               >
-                <option value="">
-                  {loadingFields ? "Loading…" : "Select field"}
-                </option>
+                <option value="">{loadingFields ? "Loading…" : "Select field"}</option>
                 {contactFields.map((f) => (
                   <option key={f.field_key} value={f.field_key}>
                     {f.label} ({f.field_key})
                   </option>
                 ))}
               </select>
-              <ChevronDown
-                size={12}
-                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]"
-              />
+              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+            </div>
+
+            {/* Transform */}
+            <div className="relative">
+              <select
+                value={mapping.transform ?? ""}
+                onChange={(e) => updateRow(i, "transform", e.target.value)}
+                className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+              >
+                <option value="">None</option>
+                <option value="split_name_first">Split name → First</option>
+                <option value="split_name_last">Split name → Last</option>
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
             </div>
 
             {/* Delete row */}
