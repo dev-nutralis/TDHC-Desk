@@ -65,39 +65,31 @@ export async function POST(
 
     let fieldValues: Record<string, unknown> = {};
 
+    // Email is always read directly from the Klaviyo profile — required for upsert
+    const email = readProfileField(profile, "email");
+    if (!email) {
+      console.log("[klaviyo webhook] no email in profile:", JSON.stringify(profile));
+      return NextResponse.json({ error: "email is required" }, { status: 400 });
+    }
+
     if (mappings.length > 0) {
-      // Use explicit mappings
+      // Use explicit mappings to build contact field_values
       for (const { klaviyo_field, contact_field_key } of mappings) {
         const value = readProfileField(profile, klaviyo_field);
         if (value) {
           fieldValues[contact_field_key] = value;
         }
       }
-
-      // email mapping is required
-      if (!fieldValues.email) {
-        console.log("[klaviyo webhook] mappings:", JSON.stringify(mappings), "fieldValues:", JSON.stringify(fieldValues));
-        return NextResponse.json(
-          { error: "email is required — check your form mappings" },
-          { status: 400 }
-        );
-      }
     } else {
       // Fallback: auto-detect standard fields so existing forms without mappings still work
       for (const key of STANDARD_FALLBACK_FIELDS) {
         const value = String(profile[key] ?? "").trim();
         if (value) {
-          // phone_number → phone for consistency with contact model
           fieldValues[key === "phone_number" ? "phone" : key] = value;
         }
       }
-
-      if (!fieldValues.email) {
-        return NextResponse.json({ error: "email is required" }, { status: 400 });
-      }
     }
 
-    const email = fieldValues.email as string;
     const platform_id = form.platform_id;
 
     // 4. Find existing contact by email + platform_id
