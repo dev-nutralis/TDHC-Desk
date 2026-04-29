@@ -65,20 +65,28 @@ function formatFieldValue(field: ContactField, fv: FieldValues | null): React.Re
     }
 
     case "multi_phone": {
-      if (!Array.isArray(val) || val.length === 0) return empty;
-      const phones = val as { number: string }[];
-      if (phones.length === 1) {
-        return phones[0]?.number ? (
-          <span className="max-w-[160px] truncate block">{phones[0].number}</span>
+      const phoneArr = Array.isArray(val)
+        ? (val as { number: string }[])
+        : typeof val === "string" && val
+          ? [{ number: val }]
+          : [];
+      if (phoneArr.length === 0) return empty;
+      if (phoneArr.length === 1) {
+        return phoneArr[0]?.number ? (
+          <span className="max-w-[160px] truncate block">{phoneArr[0].number}</span>
         ) : empty;
       }
-      return <span>{phones.length} numbers</span>;
+      return <span>{phoneArr.length} numbers</span>;
     }
 
     case "multi_email": {
-      if (!Array.isArray(val) || val.length === 0) return empty;
-      const emails = val as { address: string; is_main: boolean }[];
-      const main = emails.find((e) => e.is_main) ?? emails[0];
+      const emailArr = Array.isArray(val)
+        ? (val as { address: string; is_main: boolean }[])
+        : typeof val === "string" && val
+          ? [{ address: val, is_main: false }]
+          : [];
+      if (emailArr.length === 0) return empty;
+      const main = emailArr.find((e) => e.is_main) ?? emailArr[0];
       return main?.address ? (
         <span className="max-w-[160px] truncate block">{main.address}</span>
       ) : empty;
