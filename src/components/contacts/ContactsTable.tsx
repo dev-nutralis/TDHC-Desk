@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X } from "lucide-react";
 import ContactFilterPanel, { FilterCondition, chipLabel } from "./ContactFilterPanel";
@@ -590,6 +590,8 @@ const EXCLUDED_FIELD_KEYS = new Set(["first_name", "last_name"]);
 
 export default function ContactsTable({ defaultUserId }: { defaultUserId: string }) {
   const router = useRouter();
+  const params = useParams();
+  const platform = (params?.platform as string) ?? "";
   const [data, setData] = useState<ContactsResponse | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -967,7 +969,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
                 return (
                   <tr
                     key={contact.id}
-                    onClick={() => router.push(`/contacts/${contact.id}`)}
+                    onClick={() => router.push(`/${platform}/contacts/${contact.id}`)}
                     className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer"
                   >
                     {/* Name — click navigates to detail page; pencil opens profile for editing */}

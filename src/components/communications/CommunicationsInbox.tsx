@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Search, Loader2, Inbox, Send, Archive, Briefcase, X, Check, ArchiveRestore } from "lucide-react";
 
@@ -173,6 +173,8 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 
 export default function CommunicationsInbox() {
   const router = useRouter();
+  const params = useParams();
+  const platform = (params?.platform as string) ?? "";
   const [tab, setTab]         = useState<Tab>("inbox");
   const [data, setData]       = useState<InboxResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -287,7 +289,7 @@ export default function CommunicationsInbox() {
           return (
             <div
               key={activity.id}
-              onClick={() => router.push(`/contacts/${activity.contact_id}`)}
+              onClick={() => router.push(`/${platform}/contacts/${activity.contact_id}`)}
               className={`group flex items-center gap-4 px-6 py-3.5 cursor-pointer hover:bg-[#F8F9F9] transition-colors ${!isLast ? "border-b border-[#F3F4F6]" : ""}`}
             >
               {/* Avatar */}
