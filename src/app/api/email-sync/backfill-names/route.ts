@@ -28,16 +28,24 @@ export async function POST() {
 
     const platform = await prisma.platform.findUnique({
       where: { id: platformId },
-      select: { imap_host: true, imap_port: true, imap_user: true, imap_pass: true, imap_enabled: true },
+      select: {
+        imap_host: true, imap_port: true, imap_user: true, imap_pass: true, imap_enabled: true,
+        email_auto_contact_source_id: true,
+      },
     });
 
     if (!platform?.imap_enabled || !platform.imap_host || !platform.imap_user || !platform.imap_pass) {
       return NextResponse.json({ error: "IMAP not configured" }, { status: 400 });
     }
 
-    // Load all contacts for this platform
+    // Load contacts — restricted to email-auto-source if configured
     const allContacts = await prisma.contact.findMany({
-      where: { platform_id: platformId },
+      where: {
+        platform_id: platformId,
+        ...(platform.email_auto_contact_source_id
+          ? { source_id: platform.email_auto_contact_source_id }
+          : {}),
+      },
       select: { id: true, field_values: true },
     });
 

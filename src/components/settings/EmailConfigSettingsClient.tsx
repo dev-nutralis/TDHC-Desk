@@ -142,6 +142,24 @@ export default function EmailConfigSettingsClient({ platformId, initialConfig }:
   const [testingImap, setTestingImap] = useState(false);
   const [testImapResult, setTestImapResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  // Backfill state
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{ scanned: number; updated: number; errors: number } | { error: string } | null>(null);
+
+  const runBackfill = async () => {
+    setBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const res = await fetch("/api/email-sync/backfill-names", { method: "POST" });
+      const data = await res.json();
+      setBackfillResult(data);
+    } catch {
+      setBackfillResult({ error: "Backfill request failed" });
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   const set = (key: keyof EmailConfig, value: string | boolean) =>
     setCfg(c => ({ ...c, [key]: value }));
 
@@ -375,6 +393,35 @@ export default function EmailConfigSettingsClient({ platformId, initialConfig }:
             ))}
           </select>
         </Field>
+
+        {/* Backfill names */}
+        <div className="mt-5 pt-5 border-t border-[#D8DCDE]">
+          <p className="text-xs font-semibold text-[#2F3941]">Backfill names on existing contacts</p>
+          <p className="text-[11px] text-[#68717A] mt-0.5 mb-3">
+            Re-scan recent IMAP messages and fill missing first/last name on auto-created contacts (only updates contacts whose Source matches the one selected above, without overwriting existing values).
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={runBackfill}
+              disabled={backfilling || !cfg.imap_enabled}
+              className="flex items-center gap-1.5 h-8 px-4 text-xs font-medium rounded-lg border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {backfilling ? <Loader2 size={12} className="animate-spin" /> : null}
+              Run backfill
+            </button>
+            {backfillResult && (
+              "error" in backfillResult
+                ? <span className="text-xs text-[#CC3340]">{backfillResult.error}</span>
+                : (
+                  <span className="text-xs text-[#038153] flex items-center gap-1.5">
+                    <CheckCircle2 size={13} />
+                    Scanned {backfillResult.scanned} · Updated {backfillResult.updated}
+                    {backfillResult.errors > 0 && <span className="text-[#B35A00]"> · {backfillResult.errors} errors</span>}
+                  </span>
+                )
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ── Save ── */}
