@@ -6,6 +6,7 @@ import { syncDealValuesToContact } from "@/lib/sync-field-values";
 
 const includeContact = {
   contact: { select: { id: true, field_values: true } },
+  source: { select: { id: true, name: true } },
   user: { select: { id: true, first_name: true, last_name: true } },
 };
 
@@ -26,10 +27,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const platformId = await getPlatformId(slug) ?? null;
 
   const { id } = await params;
-  const { contact_id, field_values, user_id } = await req.json();
+  const { contact_id, field_values, user_id, source_id, attribute_ids } = await req.json();
 
   const existing = await prisma.deal.findFirst({ where: { id, platform_id: platformId } });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const sourceChanged =
+    (source_id !== undefined && source_id !== existing.source_id) ||
+    (attribute_ids !== undefined && attribute_ids !== existing.attribute_ids);
 
   const deal = await prisma.deal.update({
     where: { id },
@@ -37,6 +42,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       ...(contact_id !== undefined && { contact_id }),
       ...(field_values !== undefined && { field_values }),
       ...(user_id !== undefined && { user_id }),
+      ...(source_id !== undefined && { source_id: source_id || null }),
+      ...(attribute_ids !== undefined && { attribute_ids: attribute_ids || null }),
       updated_at: new Date(),
     },
     include: includeContact,
@@ -45,6 +52,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (field_values !== undefined) {
     syncDealValuesToContact(id, field_values as Record<string, unknown>).catch(console.error);
   }
+
+  // Propagate source change up to parent contact and sibling deals
+  if (sourceChanged) {
+    const parentContactId = deal.contact_id;
+    await prisma.contact.update({
+      where: { id: parentContactId },
+      data: {
+        ...(source_id !== undefined && { source_id: source_id || null }),
+        ...(attribute_ids !== undefined && { attribute_ids: attribute_ids || null }),
+      },
+    });
+    // Also sync to sibling deals of the same contact
+    await prisma.deal.updateMany({
+      where: { contact_id: parentContactId, id: { not: id } },
+      data: {
+        ...(source_id !== undefined && { source_id: source_id || null }),
+        ...(attribute_ids !== undefined && { attribute_ids: attribute_ids || null }),
+      },
+    });
+  }
+
   return NextResponse.json(deal);
 }
 

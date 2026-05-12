@@ -187,9 +187,17 @@ export default function CommunicationsInbox() {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), tab });
     if (search) params.set("search", search);
-    const res = await fetch(`/api/communications?${params}`);
-    setData(await res.json());
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/communications?${params}`);
+      const text = await res.text();
+      const json = text ? JSON.parse(text) : { activities: [], total: 0, page: 1, pages: 0 };
+      setData(json);
+    } catch (err) {
+      console.error("[CommunicationsInbox] fetch failed", err);
+      setData({ activities: [], total: 0, page: 1, pages: 0 });
+    } finally {
+      setLoading(false);
+    }
   }, [page, search, tab]);
 
   useEffect(() => {
@@ -222,9 +230,9 @@ export default function CommunicationsInbox() {
   };
 
   const emptyLabel =
-    tab === "inbox"    ? "No inbound emails yet" :
-    tab === "sent"     ? "No sent emails yet"    :
-    "No archived emails";
+    tab === "inbox"    ? "No inbound messages yet" :
+    tab === "sent"     ? "No sent messages yet"    :
+    "No archived messages";
 
   return (
     <div className="flex flex-col h-full">
@@ -257,7 +265,7 @@ export default function CommunicationsInbox() {
         <div className="flex-1" />
         {data && (
           <span className="text-sm text-[#68717A]">
-            {data.total} {data.total === 1 ? "email" : "emails"}
+            {data.total} {data.total === 1 ? "message" : "messages"}
           </span>
         )}
       </div>

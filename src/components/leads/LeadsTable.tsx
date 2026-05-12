@@ -9,6 +9,8 @@ import {
 import LeadModal from "./LeadModal";
 import LeadDeleteDialog from "./LeadDeleteDialog";
 import ContactModal from "@/components/contacts/ContactModal";
+import { useSourceField } from "@/hooks/useSourceField";
+import SourceCellPicker from "@/components/shared/SourceCellPicker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ interface Lead {
   id: string;
   field_values: FieldValues | null;
   source_id: string | null;
+  source: { id: string; name: string } | null;
   attribute_ids: string | null;
   user_id: string;
   created_at: string;
@@ -559,7 +562,12 @@ function loadColWidths(): Record<string, number> {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+type Column =
+  | { type: "field"; field: LeadField }
+  | { type: "source" };
+
 export default function LeadsTable({ defaultUserId }: { defaultUserId: string }) {
+  const source = useSourceField("lead");
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(true);
@@ -679,7 +687,17 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
   const fmt = (iso: string) =>
     new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
-  const totalCols = fields.length + 3;
+  const columns: Column[] = (() => {
+    const arr: Column[] = fields.map(f => ({ type: "field" as const, field: f }));
+    if (source.enabled) {
+      let insertAt = arr.findIndex(c => c.type === "field" && c.field.sort_order >= source.sortOrder);
+      if (insertAt === -1) insertAt = arr.length;
+      arr.splice(insertAt, 0, { type: "source" as const });
+    }
+    return arr;
+  })();
+
+  const totalCols = columns.length + 4;
   const isReady = !fieldsLoading;
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -729,7 +747,7 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
       </div>
 
       {/* No fields state */}
-      {isReady && fields.length === 0 && (
+      {isReady && columns.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-3 py-16 rounded-lg border border-dashed border-[#D8DCDE] bg-white text-center">
           <Settings size={28} className="text-[#C2C8CC]" strokeWidth={1.2} />
           <div>
@@ -740,19 +758,40 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
       )}
 
       {/* Table */}
-      {(isReady && fields.length > 0) && (
+      {(isReady && columns.length > 0) && (
         <div ref={tableContainerRef} className="bg-white rounded-lg border border-[#D8DCDE] overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
-                {fields.map(f => <col key={f.id} style={{ width: colWidths[f.id] ?? 160 }} />)}
+                <col style={{ width: colWidths["__id__"] ?? 120 }} />
+                {columns.map(c => c.type === "source"
+                  ? <col key="__source__" style={{ width: colWidths["__source__"] ?? 180 }} />
+                  : <col key={c.field.id} style={{ width: colWidths[c.field.id] ?? 160 }} />)}
                 <col style={{ width: colWidths["__owner__"] ?? 160 }} />
                 <col style={{ width: colWidths["__created__"] ?? 120 }} />
                 <col style={{ width: 48 }} />
               </colgroup>
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
-                  {fields.map(f => (
+                  <th className={thClass}>
+                    ID
+                    <div onMouseDown={e => startResize(e, "__id__", 120)} className="absolute top-0 bottom-0 w-[9px] cursor-col-resize z-10 flex items-center justify-center" style={{ right: -4 }}>
+                      <div className="w-px h-full bg-[#D8DCDE] hover:bg-[#038153] transition-colors" />
+                    </div>
+                  </th>
+                  {columns.map(c => {
+                    if (c.type === "source") {
+                      return (
+                        <th key="__source__" className={thClass}>
+                          Source
+                          <div onMouseDown={e => startResize(e, "__source__", 180)} className="absolute top-0 bottom-0 w-[9px] cursor-col-resize z-10 flex items-center justify-center" style={{ right: -4 }}>
+                            <div className="w-px h-full bg-[#D8DCDE] hover:bg-[#038153] transition-colors" />
+                          </div>
+                        </th>
+                      );
+                    }
+                    const f = c.field;
+                    return (
                     <th key={f.id} className={thClass}>
                       {f.label}
                       <div
@@ -763,7 +802,8 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
                         <div className="w-px h-full bg-[#D8DCDE] hover:bg-[#038153] transition-colors" />
                       </div>
                     </th>
-                  ))}
+                    );
+                  })}
                   <th className={thClass}>
                     Owner
                     <div onMouseDown={e => startResize(e, "__owner__", 160)} className="absolute top-0 bottom-0 w-[9px] cursor-col-resize z-10 flex items-center justify-center" style={{ right: -4 }}>
@@ -796,15 +836,38 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
                 )}
                 {!loading && data?.leads.map(lead => (
                   <tr key={lead.id} className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors">
-                    {fields.map((field, fi) => (
-                      <td key={field.id} className={`px-4 py-2.5 ${fi === 0 ? "font-medium" : ""}`}>
-                        <EditableCell
-                          field={field}
-                          lead={lead}
-                          onSave={(fieldKey, value) => saveCell(lead, fieldKey, value)}
-                        />
-                      </td>
-                    ))}
+                    <td className="px-4 py-2.5 font-mono text-xs text-[#68717A] select-all" title={lead.id}>
+                      {lead.id.slice(0, 8)}…
+                    </td>
+                    {columns.map((c, fi) => {
+                      if (c.type === "source") {
+                        return (
+                          <td key="__source__" className="px-4 py-2.5 text-sm" onClick={e => e.stopPropagation()}>
+                            <SourceCellPicker
+                              value={lead.source}
+                              onSave={async (sourceId) => {
+                                await fetch(`/api/leads/${lead.id}`, {
+                                  method: "PUT",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: null, field_values: lead.field_values, user_id: lead.user_id }),
+                                });
+                                fetchLeads();
+                              }}
+                            />
+                          </td>
+                        );
+                      }
+                      const field = c.field;
+                      return (
+                        <td key={field.id} className={`px-4 py-2.5 ${fi === 0 ? "font-medium" : ""}`}>
+                          <EditableCell
+                            field={field}
+                            lead={lead}
+                            onSave={(fieldKey, value) => saveCell(lead, fieldKey, value)}
+                          />
+                        </td>
+                      );
+                    })}
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-2 whitespace-nowrap">
                         <Avatar name={lead.user?.name ?? "?"} />

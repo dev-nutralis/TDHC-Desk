@@ -6,37 +6,88 @@ export interface SyncResult {
   synced: number;
   skipped: number;
   errors: number;
+  throttled?: boolean;
 }
 
-// ── Strip quoted reply blocks ─────────────────────────────────────────────────
-// Removes "On [date] ... wrote:\n> ..." blocks and bare ">"-prefixed lines
 function stripQuotedReply(text: string): string {
-  // 1. Remove "On <date>, <name> <email> wrote:\n> ..." (Gmail / Outlook style)
   let clean = text.replace(/\nOn [\s\S]+?wrote:\s*\n(>.*\n?)*/gi, "");
-
-  // 2. Remove lines that start with ">" (quoted lines)
   clean = clean
     .split("\n")
     .filter((line) => !line.trimStart().startsWith(">"))
     .join("\n");
-
-  // 3. Remove "---- Original Message ----" and everything after
   clean = clean.replace(/\n[-]{2,}\s*(Original Message|Forwarded message)[\s\S]*/i, "");
-
   return clean.trim() || text.trim();
 }
 
-// ── Main sync ─────────────────────────────────────────────────────────────────
+export async function syncInbox(platformId: string): Promise<SyncResult> {
+  const platform = await prisma.platform.findUnique({
+    where: { id: platformId },
+    select: {
+      imap_host: true,
+      imap_port: true,
+      imap_user: true,
+      imap_pass: true,
+      imap_enabled: true,
+      imap_last_sync: true,
+      email_auto_contact_source_id: true,
+    },
+  });
 
-export async function syncInbox(): Promise<SyncResult> {
-  const ownEmail = (process.env.SMTP_USER ?? "").toLowerCase();
-  const pass = (process.env.SMTP_PASS ?? "").replace(/\s/g, "");
+  if (
+    !platform?.imap_enabled ||
+    !platform.imap_host ||
+    !platform.imap_user ||
+    !platform.imap_pass
+  ) {
+    return { synced: 0, skipped: 0, errors: 0 };
+  }
+
+  // Throttle: skip if synced within last 60 seconds
+  if (platform.imap_last_sync) {
+    const elapsed = Date.now() - platform.imap_last_sync.getTime();
+    if (elapsed < 60_000) return { synced: 0, skipped: 0, errors: 0, throttled: true };
+  }
+
+  // Fix N+1: load all contacts for this platform once
+  const allContacts = await prisma.contact.findMany({
+    where: { platform_id: platformId },
+    select: { id: true, field_values: true },
+  });
+
+  const emailToContactId = new Map<string, string>();
+  for (const c of allContacts) {
+    const fv = c.field_values as Record<string, unknown> | null;
+    const emails = fv?.emails as { address: string }[] | undefined;
+    if (emails) {
+      for (const e of emails) {
+        if (e.address) emailToContactId.set(e.address.toLowerCase(), c.id);
+      }
+    }
+  }
+
+  // Fix N+1: load all existing message IDs once
+  const existingRows = await prisma.contactActivity.findMany({
+    where: { email_message_id: { not: null } },
+    select: { email_message_id: true },
+  });
+  const existingMessageIds = new Set(existingRows.map((r) => r.email_message_id!));
+
+  const ownEmail = platform.imap_user.toLowerCase();
+  const autoSourceId = platform.email_auto_contact_source_id ?? null;
+
+  // Default owner for auto-created contacts: prefer an admin, fall back to first user
+  let defaultOwnerId: string | null = null;
+  if (autoSourceId) {
+    const owner = await prisma.user.findFirst({ where: { role: { in: ["super_admin", "admin"] } } })
+      ?? await prisma.user.findFirst();
+    defaultOwnerId = owner?.id ?? null;
+  }
 
   const client = new ImapFlow({
-    host: "imap.gmail.com",
-    port: 993,
+    host: platform.imap_host,
+    port: platform.imap_port ?? 993,
     secure: true,
-    auth: { user: ownEmail, pass },
+    auth: { user: ownEmail, pass: platform.imap_pass },
     logger: false,
   });
 
@@ -49,14 +100,12 @@ export async function syncInbox(): Promise<SyncResult> {
   try {
     const lock = await client.getMailboxLock("INBOX");
     try {
-      // Search messages from the last 30 days (seen or unseen)
       const since = new Date();
       since.setDate(since.getDate() - 30);
       const uids = await client.search({ since }, { uid: true });
 
       if (!uids || uids.length === 0) return { synced, skipped, errors };
 
-      // Process at most 100 messages per sync (newest first)
       const batch = uids.slice(-100);
 
       for await (const msg of client.fetch(batch, { source: true, envelope: true }, { uid: true })) {
@@ -64,13 +113,9 @@ export async function syncInbox(): Promise<SyncResult> {
           const messageId = msg.envelope?.messageId;
           if (!messageId || !msg.source) { skipped++; continue; }
 
-          // Skip already ingested
-          const exists = await prisma.contactActivity.findUnique({
-            where: { email_message_id: messageId },
-          });
-          if (exists) { skipped++; continue; }
+          // O(1) lookup instead of DB query per email
+          if (existingMessageIds.has(messageId)) { skipped++; continue; }
 
-          // Parse raw source
           const parsed: ParsedMail = await (simpleParser as (source: Buffer) => Promise<ParsedMail>)(msg.source);
 
           const fromAddr = (parsed.from?.value?.[0]?.address ?? "").toLowerCase();
@@ -78,7 +123,6 @@ export async function syncInbox(): Promise<SyncResult> {
 
           const isOutbound = fromAddr === ownEmail;
 
-          // Resolve lookup address: outbound → To, inbound → From
           let lookupAddr = "";
           if (isOutbound) {
             const toField = parsed.to;
@@ -93,20 +137,30 @@ export async function syncInbox(): Promise<SyncResult> {
 
           if (!lookupAddr) { skipped++; continue; }
 
-          // Find matching contact
-          const allContacts = await prisma.contact.findMany({
-            select: { id: true, field_values: true },
-          });
+          // O(1) lookup instead of findMany per email
+          let contactId = emailToContactId.get(lookupAddr);
 
-          const matched = allContacts.find((c) => {
-            const fv = c.field_values as Record<string, unknown> | null;
-            const emails = fv?.emails as { address: string }[] | undefined;
-            return emails?.some((e) => e.address.toLowerCase() === lookupAddr);
-          });
+          // Auto-create contact for unknown inbound senders if configured
+          if (!contactId) {
+            if (isOutbound || !autoSourceId || !defaultOwnerId) {
+              skipped++;
+              continue;
+            }
+            const created = await prisma.contact.create({
+              data: {
+                platform_id: platformId,
+                user_id: defaultOwnerId,
+                source_id: autoSourceId,
+                field_values: {
+                  emails: [{ address: lookupAddr, is_main: true, note: "" }],
+                },
+              },
+              select: { id: true },
+            });
+            contactId = created.id;
+            emailToContactId.set(lookupAddr, contactId);
+          }
 
-          if (!matched) { skipped++; continue; }
-
-          // Extract and clean body
           const rawText =
             parsed.text?.trim() ||
             (typeof parsed.html === "string"
@@ -115,18 +169,27 @@ export async function syncInbox(): Promise<SyncResult> {
 
           const bodyText = rawText ? stripQuotedReply(rawText) : "(no content)";
 
+          const normalizedSubject = (parsed.subject ?? "").toLowerCase().replace(/^re:\s*/i, "").trim();
+          const threadId = `${contactId}::${normalizedSubject}`;
+
           await prisma.contactActivity.create({
             data: {
-              contact_id: matched.id,
+              contact_id: contactId,
+              platform_id: platformId,
               type: "email",
               direction: isOutbound ? "outbound" : "inbound",
               subject: parsed.subject ?? null,
               body: bodyText,
               email_message_id: messageId,
+              is_read: isOutbound,
+              is_draft: false,
+              is_spam: false,
+              thread_id: threadId,
               created_at: parsed.date ?? new Date(),
             },
           });
 
+          existingMessageIds.add(messageId);
           synced++;
         } catch (msgErr) {
           console.error("[imap-sync] message error:", msgErr);
@@ -139,6 +202,11 @@ export async function syncInbox(): Promise<SyncResult> {
   } finally {
     await client.logout();
   }
+
+  await prisma.platform.update({
+    where: { id: platformId },
+    data: { imap_last_sync: new Date() },
+  });
 
   return { synced, skipped, errors };
 }

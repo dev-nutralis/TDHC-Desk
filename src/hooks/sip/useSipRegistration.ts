@@ -7,33 +7,35 @@ import { sipError, sipLog, sipWarn } from "./sipLogger";
 
 type OnInviteCallback = (session: Session) => void;
 
-// Module-level singleton — survives React StrictMode double-mount in dev.
-// Only one PhoneOperator instance exists at a time per page load.
-let _phone: PhoneOperator | null = null;
-let _destroy: (() => void) | null = null;
-let _initKey: string | null = null; // tracks which config is currently registered
-let _initializing = false;
+// Stored on globalThis so HMR module reloads don't reset state while the SDK's
+// internal logger singleton (which lives outside React's module graph) stays alive.
+// Without this, HMR would reset singletons to null and trigger a second
+// init() call, causing "Log has been initialized" from ys-webrtc-sdk-core.
+const _g = globalThis as typeof globalThis & {
+  __sipPhone: PhoneOperator | null;
+  __sipDestroy: (() => void) | null;
+  __sipInitKey: string | null;
+  __sipInitializing: boolean;
+};
+if (!("__sipPhone" in _g)) _g.__sipPhone = null;
+if (!("__sipDestroy" in _g)) _g.__sipDestroy = null;
+if (!("__sipInitKey" in _g)) _g.__sipInitKey = null;
+if (!("__sipInitializing" in _g)) _g.__sipInitializing = false;
 
 function sdkDestroy() {
-  if (_destroy) {
-    try { _destroy(); } catch {}
-    _destroy = null;
+  if (_g.__sipDestroy) {
+    try { _g.__sipDestroy(); } catch {}
+    _g.__sipDestroy = null;
   }
-  _phone = null;
-  _initKey = null;
+  _g.__sipPhone = null;
+  _g.__sipInitKey = null;
 }
 
 export function useSipRegistration(config: SipConfig | null, onInvite: OnInviteCallback) {
   const [state, setState] = useState<SipPhoneState>("unregistered");
   const [error, setError] = useState<string | null>(null);
 
-  // uaRef exposes the current PhoneOperator to the rest of the hooks
-  const uaRef = useRef<PhoneOperator | null>(_phone);
-
-  // Keep uaRef in sync when module-level phone changes
-  function syncUaRef() {
-    uaRef.current = _phone;
-  }
+  const uaRef = useRef<PhoneOperator | null>(_g.__sipPhone);
 
   async function register() {
     if (!config) return;
@@ -41,15 +43,15 @@ export function useSipRegistration(config: SipConfig | null, onInvite: OnInviteC
     const key = `${config.sipUser}@${config.wssHost}`;
 
     // Already registered with same credentials — nothing to do
-    if (_initKey === key && _phone) {
+    if (_g.__sipInitKey === key && _g.__sipPhone) {
       sipLog("Already registered, reusing existing PhoneOperator");
-      uaRef.current = _phone;
+      uaRef.current = _g.__sipPhone;
       setState("idle");
       return;
     }
 
     // Another registration is in flight — skip
-    if (_initializing) {
+    if (_g.__sipInitializing) {
       sipLog("Init already in progress, skipping duplicate register()");
       return;
     }
@@ -58,7 +60,7 @@ export function useSipRegistration(config: SipConfig | null, onInvite: OnInviteC
     sdkDestroy();
 
     sipLog(`Registering user=${config.sipUser} pbx=${config.wssHost} passLen=${config.sipPass?.length ?? 0}`);
-    _initializing = true;
+    _g.__sipInitializing = true;
     setState("registering");
     setError(null);
 
@@ -72,10 +74,10 @@ export function useSipRegistration(config: SipConfig | null, onInvite: OnInviteC
         enableLog: false,
       });
 
-      _phone = phone;
-      _destroy = destroy;
-      _initKey = key;
-      _initializing = false;
+      _g.__sipPhone = phone;
+      _g.__sipDestroy = destroy;
+      _g.__sipInitKey = key;
+      _g.__sipInitializing = false;
       uaRef.current = phone;
 
       phone.on("registered", () => {
@@ -104,9 +106,8 @@ export function useSipRegistration(config: SipConfig | null, onInvite: OnInviteC
       phone.start();
       sipLog("PhoneOperator started");
     } catch (err) {
-      _initializing = false;
-      // Only destroy if we didn't get a valid phone instance back
-      if (!_phone) sdkDestroy();
+      _g.__sipInitializing = false;
+      if (!_g.__sipPhone) sdkDestroy();
       sipError("Registration error", JSON.stringify(err), err);
       const msg =
         err instanceof Error
@@ -124,9 +125,9 @@ export function useSipRegistration(config: SipConfig | null, onInvite: OnInviteC
     cleanupCall: () => void,
   ) {
     try {
-      if (_phone && sessionRef.current) {
+      if (_g.__sipPhone && sessionRef.current) {
         const callId = sessionRef.current.status.callId;
-        if (callId) _phone.hangup(callId);
+        if (callId) _g.__sipPhone.hangup(callId);
       }
     } catch {}
     sdkDestroy();
@@ -140,11 +141,10 @@ export function useSipRegistration(config: SipConfig | null, onInvite: OnInviteC
   useEffect(() => {
     if (config) {
       const key = `${config.sipUser}@${config.wssHost}`;
-      if (_initKey !== key || !_phone) {
+      if (_g.__sipInitKey !== key || !_g.__sipPhone) {
         register();
       } else {
-        // Already registered — sync state
-        uaRef.current = _phone;
+        uaRef.current = _g.__sipPhone;
         setState("idle");
       }
     }

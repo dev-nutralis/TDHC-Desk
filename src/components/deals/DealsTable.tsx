@@ -8,6 +8,8 @@ import Link from "next/link";
 import DealModal from "./DealModal";
 import DealDeleteDialog from "./DealDeleteDialog";
 import ContactFilterPanel, { FilterCondition, chipLabel } from "@/components/contacts/ContactFilterPanel";
+import { useSourceField } from "@/hooks/useSourceField";
+import SourceCellPicker from "@/components/shared/SourceCellPicker";
 
 const DEALS_BUILTIN = [
   { id: "__added_on__", label: "Added On", field_key: "__added_on__", field_type: "date", options: [] as { id: string; label: string; value: string }[] },
@@ -30,6 +32,7 @@ interface Deal {
   id: string;
   contact_id: string;
   contact: ContactInfo;
+  source: { id: string; name: string } | null;
   field_values: FieldValues | null;
   user_id: string;
   user: { id: string; name: string };
@@ -392,10 +395,15 @@ function loadColWidths(): Record<string, number> {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+type Column =
+  | { type: "field"; field: DealField }
+  | { type: "source" };
+
 export default function DealsTable({ defaultUserId }: { defaultUserId: string }) {
   const router = useRouter();
   const params = useParams();
   const platform = (params?.platform as string) ?? "";
+  const source = useSourceField("deal");
   const [data, setData]           = useState<DealsResponse | null>(null);
   const [fields, setFields]       = useState<DealField[]>([]);
   const [fieldsLoading, setFl]    = useState(true);
@@ -480,7 +488,17 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
 
   const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
-  const totalCols = fields.length + 4; // contact + fields + owner + created + actions
+  const columns: Column[] = (() => {
+    const arr: Column[] = fields.map(f => ({ type: "field" as const, field: f }));
+    if (source.enabled) {
+      let insertAt = arr.findIndex(c => c.type === "field" && c.field.sort_order >= source.sortOrder);
+      if (insertAt === -1) insertAt = arr.length;
+      arr.splice(insertAt, 0, { type: "source" as const });
+    }
+    return arr;
+  })();
+
+  const totalCols = columns.length + 5; // id + contact + columns + owner + created + actions
   const isReady = !fieldsLoading;
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -557,16 +575,22 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
           <div className="overflow-x-auto">
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
+                <col style={{ width: colWidths["__id__"] ?? 120 }} />
                 <col style={{ width: colWidths["__contact__"] ?? 200 }} />
-                {fields.map(f => <col key={f.id} style={{ width: colWidths[f.id] ?? 160 }} />)}
+                {columns.map(c => c.type === "source"
+                  ? <col key="__source__" style={{ width: colWidths["__source__"] ?? 180 }} />
+                  : <col key={c.field.id} style={{ width: colWidths[c.field.id] ?? 160 }} />)}
                 <col style={{ width: colWidths["__owner__"] ?? 160 }} />
                 <col style={{ width: colWidths["__created__"] ?? 120 }} />
                 <col style={{ width: 48 }} />
               </colgroup>
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
+                  <th className={thClass}>ID{sepDiv("__id__", 120)}</th>
                   <th className={thClass}>Contact{sepDiv("__contact__", 200)}</th>
-                  {fields.map(f => <th key={f.id} className={thClass}>{f.label}{sepDiv(f.id, 160)}</th>)}
+                  {columns.map(c => c.type === "source"
+                    ? <th key="__source__" className={thClass}>Source{sepDiv("__source__", 180)}</th>
+                    : <th key={c.field.id} className={thClass}>{c.field.label}{sepDiv(c.field.id, 160)}</th>)}
                   <th className={thClass}>Owner{sepDiv("__owner__", 160)}</th>
                   <th className={thClass}>Created{sepDiv("__created__", 120)}</th>
                   <th style={{ width: 48 }} />
@@ -585,6 +609,10 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
                 )}
                 {!loading && data?.deals.map(deal => (
                   <tr key={deal.id} onClick={() => router.push('/deals/' + deal.id)} className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer">
+                    {/* ID — always first */}
+                    <td className="px-4 py-2.5 font-mono text-xs text-[#68717A] select-all" onClick={e => e.stopPropagation()} title={deal.id}>
+                      {deal.id.slice(0, 8)}…
+                    </td>
                     {/* Contact — clickable link to contact profile */}
                     <td className="px-4 py-2.5 font-medium">
                       <Link href={`/contacts/${deal.contact_id}`} onClick={e => e.stopPropagation()}
@@ -593,15 +621,35 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
                         <span className="text-[#2F3941] group-hover/contact:text-[#038153] truncate transition-colors">{contactName(deal.contact?.field_values ?? null)}</span>
                       </Link>
                     </td>
-                    {/* Dynamic fields — inline editable; deal_name gets link+pencil */}
-                    {fields.map(field => (
-                      <td key={field.id} className="px-4 py-2.5">
-                        {field.field_key === "deal_name"
-                          ? <DealNameCell field={field} deal={deal} onSave={(fieldKey, value) => saveCell(deal, fieldKey, value)} />
-                          : <EditableCell field={field} deal={deal} onSave={(fieldKey, value) => saveCell(deal, fieldKey, value)} />
-                        }
-                      </td>
-                    ))}
+                    {/* Dynamic columns — fields + optional Source */}
+                    {columns.map(c => {
+                      if (c.type === "source") {
+                        return (
+                          <td key="__source__" className="px-4 py-2.5 text-sm" onClick={e => e.stopPropagation()}>
+                            <SourceCellPicker
+                              value={deal.source}
+                              onSave={async (sourceId) => {
+                                await fetch(`/api/deals/${deal.id}`, {
+                                  method: "PUT",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: null }),
+                                });
+                                fetchDeals();
+                              }}
+                            />
+                          </td>
+                        );
+                      }
+                      const field = c.field;
+                      return (
+                        <td key={field.id} className="px-4 py-2.5">
+                          {field.field_key === "deal_name"
+                            ? <DealNameCell field={field} deal={deal} onSave={(fieldKey, value) => saveCell(deal, fieldKey, value)} />
+                            : <EditableCell field={field} deal={deal} onSave={(fieldKey, value) => saveCell(deal, fieldKey, value)} />
+                          }
+                        </td>
+                      );
+                    })}
                     {/* Owner */}
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-2 whitespace-nowrap">

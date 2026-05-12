@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Mail, StickyNote, Loader2, Send, FileText, RefreshCw,
+  Mail, StickyNote, Loader2, Send, FileText,
   ArrowDownLeft, ArrowUpRight, Type, Image, Link2, Braces,
   Paperclip, X, Check, Bold, Italic, Heading1, Heading2,
   Quote, List, ListOrdered, Pencil, ChevronDown, ChevronUp,
@@ -791,7 +791,6 @@ export default function ContactActivityFeed({ contactId }: Props) {
   const [loading,    setLoading]    = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [reloadKey,  setReloadKey]  = useState(0);
-  const [syncing,    setSyncing]    = useState(true);
   const [archiving,  setArchiving]  = useState<string | null>(null);
   const [filter,     setFilter]     = useState<"all" | "email" | "sms" | "note" | "call">("all");
 
@@ -820,16 +819,11 @@ export default function ContactActivityFeed({ contactId }: Props) {
     return () => { cancelled = true; };
   }, [contactId, reloadKey]);
 
-  // Auto-sync on mount
+  // Auto-refresh activities every 30s (cron handles IMAP sync in background)
   useEffect(() => {
-    setSyncing(true);
-    fetch("/api/email-sync", { method: "POST" })
-      .then((res) => res.json())
-      .then((json) => { if ((json.synced ?? 0) > 0) reload(); })
-      .catch(() => {})
-      .finally(() => setSyncing(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contactId]);
+    const interval = setInterval(() => setReloadKey((k) => k + 1), 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Archive a sent email — moves it to Archived tab in Communications
   const handleArchive = async (activityId: string) => {
@@ -1321,11 +1315,6 @@ export default function ContactActivityFeed({ contactId }: Props) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#D8DCDE]">
           <span className="text-[11px] font-semibold text-[#68717A] uppercase tracking-wider">Activity</span>
           <div className="flex items-center gap-1">
-            {syncing && (
-              <span className="flex items-center gap-1.5 text-xs text-[#68717A] mr-2">
-                <RefreshCw size={11} className="animate-spin" /> Syncing...
-              </span>
-            )}
             {(["all", "email", "sms", "note", "call"] as const).map(f => (
               <button
                 key={f}
@@ -1343,7 +1332,7 @@ export default function ContactActivityFeed({ contactId }: Props) {
             ))}
           </div>
         </div>
-        <div className={`px-4 transition-all duration-300 ${syncing ? "blur-sm pointer-events-none select-none" : ""}`}>
+        <div className="px-4">
           {loading ? (
             <div className="flex justify-center items-center py-10">
               <Loader2 size={20} className="animate-spin text-[#68717A]" />

@@ -13,6 +13,7 @@ import {
   UserCircle2,
   Globe,
   Tag,
+  Hash,
 } from "lucide-react";
 import ContactModal from "./ContactModal";
 import ContactActivityFeed from "./ContactActivityFeed";
@@ -114,6 +115,7 @@ function fmt(iso: string) {
 function iconForField(field_key: string, field_type: string): React.ReactNode {
   if (field_type === "multi_phone" || field_key === "mobile_numbers") return <Phone size={14} />;
   if (field_type === "multi_email" || field_key === "emails") return <Mail size={14} />;
+  if (field_type === "builtin_id" || field_key === "__id__") return <Hash size={14} />;
   if (field_type === "builtin_date" || field_key === "__added_on__") return <Calendar size={14} />;
   if (field_type === "builtin_source" || field_type === "source_select" || field_key === "__source__") return <Globe size={14} />;
   if (field_type === "radio" || field_type === "select") return <User size={14} />;
@@ -253,6 +255,12 @@ export default function ContactDetailClient({ contact: initial, fields, profileC
           <span className="text-sm text-[#2F3941]">
             {contact.source?.name || <span className="text-[#C2C8CC]">—</span>}
           </span>
+        );
+      }
+
+      case "builtin_id": {
+        return (
+          <span className="text-sm font-mono text-[#68717A] select-all" title={contact.id}>{contact.id}</span>
         );
       }
 

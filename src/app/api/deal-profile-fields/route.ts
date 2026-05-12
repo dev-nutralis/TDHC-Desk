@@ -53,6 +53,11 @@ function parseHasNotes(config: string | null | undefined): boolean {
   }
 }
 
+const BUILTINS: Record<string, { label: string; field_type: string }> = {
+  __id__: { label: "ID", field_type: "builtin_id" },
+  __source__: { label: "Source", field_type: "builtin_source" },
+};
+
 async function buildResponse(
   platformId: string | null,
   rawConfigs: Array<{
@@ -74,10 +79,11 @@ async function buildResponse(
 
   // Enrich each config row
   const configs: EnrichedConfig[] = rawConfigs.map((cfg) => {
+    const builtin = BUILTINS[cfg.field_key];
     const df = dfByKey.get(cfg.field_key);
 
-    const label = df?.label ?? cfg.field_key;
-    const field_type = df?.field_type ?? "text";
+    const label = builtin?.label ?? df?.label ?? cfg.field_key;
+    const field_type = builtin?.field_type ?? df?.field_type ?? "text";
     const options: OptionRow[] =
       df?.options.map((o) => ({
         label: o.label,
@@ -101,10 +107,16 @@ async function buildResponse(
   // Build the set of field_keys already in configs
   const usedKeys = new Set(rawConfigs.map((c) => c.field_key));
 
-  // Available = active DealFields NOT in configs
+  // Available = active DealFields NOT in configs + builtins not in configs
   const available: AvailableField[] = dealFields
     .filter((f) => !usedKeys.has(f.field_key))
     .map((f) => ({ field_key: f.field_key, label: f.label, field_type: f.field_type }));
+
+  for (const [key, meta] of Object.entries(BUILTINS)) {
+    if (!usedKeys.has(key)) {
+      available.push({ field_key: key, label: meta.label, field_type: meta.field_type });
+    }
+  }
 
   return { configs, available };
 }
@@ -117,6 +129,11 @@ export async function GET(_req: NextRequest) {
     const cookieStore = await cookies();
     const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
     const platformId = await getPlatformId(slug) ?? null;
+
+    const platform = platformId
+      ? await prisma.platform.findUnique({ where: { id: platformId }, select: { deal_show_source: true } })
+      : null;
+    const sourceEnabled = platform?.deal_show_source ?? false;
 
     const dbConfigs = await prisma.dealProfileConfig.findMany({
       where: { platform_id: platformId },
@@ -133,7 +150,14 @@ export async function GET(_req: NextRequest) {
           }))
         : await buildDefaultConfigs(platformId);
 
-    const body = await buildResponse(platformId, rawConfigs);
+    const filteredConfigs = sourceEnabled
+      ? rawConfigs
+      : rawConfigs.filter((c) => c.field_key !== "__source__");
+
+    const body = await buildResponse(platformId, filteredConfigs);
+    if (!sourceEnabled) {
+      body.available = body.available.filter((a) => a.field_key !== "__source__");
+    }
     return NextResponse.json(body);
   } catch (err) {
     console.error("[GET /api/deal-profile-fields]", err);

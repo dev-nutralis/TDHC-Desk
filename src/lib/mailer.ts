@@ -1,14 +1,13 @@
 import nodemailer from "nodemailer";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT ?? 465),
-  secure: true, // SSL on port 465
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  from: string;
+}
 
 interface Attachment {
   filename: string;
@@ -22,15 +21,24 @@ export async function sendEmail({
   text,
   html,
   attachments = [],
+  smtp,
 }: {
   to: string;
   subject: string;
   text: string;
   html?: string;
   attachments?: Attachment[];
+  smtp: SmtpConfig;
 }) {
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    auth: { user: smtp.user, pass: smtp.pass },
+  });
+
   await transporter.sendMail({
-    from: `TDHC Desk <${process.env.SMTP_FROM}>`,
+    from: `TDHC Desk <${smtp.from}>`,
     to,
     subject,
     text,

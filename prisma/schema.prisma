@@ -13,6 +13,26 @@ model Platform {
   logo_url               String?
   website_url            String?
   transcription_language String?
+  gsm_port               String?
+  smtp_host              String?
+  smtp_port              Int?
+  smtp_user              String?
+  smtp_pass              String?
+  smtp_from              String?
+  smtp_secure            Boolean         @default(true)
+  imap_host              String?
+  imap_port              Int?
+  imap_user              String?
+  imap_pass              String?
+  imap_enabled           Boolean         @default(false)
+  imap_last_sync         DateTime?
+  email_auto_contact_source_id String?
+  lead_show_source       Boolean         @default(true)
+  contact_show_source    Boolean         @default(true)
+  deal_show_source       Boolean         @default(false)
+  lead_source_sort_order    Int          @default(0)
+  contact_source_sort_order Int          @default(0)
+  deal_source_sort_order    Int          @default(0)
   created_at             DateTime        @default(now())
   updated_at             DateTime        @updatedAt
   users                  UserPlatform[]
@@ -24,9 +44,10 @@ model KlaviyoForm {
   platform_id   String
   name          String
   token         String   @unique
-  mappings      Json     @default("[]")
-  create_deal   Boolean  @default(false)
-  deal_mappings Json     @default("[]")
+  mappings             Json     @default("[]")
+  create_deal          Boolean  @default(false)
+  create_deal_new_only Boolean  @default(false)
+  deal_mappings        Json     @default("[]")
   created_at    DateTime @default(now())
   platform      Platform @relation(fields: [platform_id], references: [id], onDelete: Cascade)
 }
@@ -70,6 +91,7 @@ model Source {
   attribute_groups SourceAttributeGroup[]
   leads            Lead[]
   contacts         Contact[]
+  deals            Deal[]
 
   @@unique([name, platform_id])
 }
@@ -148,6 +170,10 @@ model ContactActivity {
   deal             Deal?    @relation(fields: [deal_id], references: [id], onDelete: SetNull)
   platform_id      String?
   archived         Boolean  @default(false)
+  is_draft         Boolean  @default(false)
+  is_spam          Boolean  @default(false)
+  is_read          Boolean  @default(true)
+  thread_id        String?
   created_at       DateTime @default(now())
 }
 
@@ -223,15 +249,18 @@ model EmailSignature {
 }
 
 model Deal {
-  id           String     @id @default(uuid())
-  contact_id   String
-  contact      Contact    @relation(fields: [contact_id], references: [id])
-  field_values Json?
-  user_id      String
-  user         User       @relation(fields: [user_id], references: [id])
-  platform_id  String?
-  created_at   DateTime   @default(now())
-  updated_at   DateTime   @updatedAt
+  id            String     @id @default(uuid())
+  contact_id    String
+  contact       Contact    @relation(fields: [contact_id], references: [id])
+  field_values  Json?
+  source_id     String?
+  source        Source?    @relation(fields: [source_id], references: [id])
+  attribute_ids String?
+  user_id       String
+  user          User       @relation(fields: [user_id], references: [id])
+  platform_id   String?
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
   notes            DealNote[]
   calendar_events  CalendarEvent[]
   activities       ContactActivity[]

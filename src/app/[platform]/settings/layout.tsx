@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
-import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone, Building2, ShieldCheck, CircleUserRound, Webhook } from "lucide-react";
+import { Contact2, Tag, Mail, User, Briefcase, CalendarDays, Phone, Building2, ShieldCheck, CircleUserRound, Webhook, Users } from "lucide-react";
 import { useSession } from "@/hooks/useSession";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -13,9 +13,10 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const isSuperAdmin = role === "super_admin";
 
   const configTabs = [
-    { href: `/${platform}/settings/leads`,    label: "Leads",    icon: Tag },
+    { href: `/${platform}/settings/leads`,    label: "Leads",    icon: Users },
     { href: `/${platform}/settings/contacts`, label: "Contacts", icon: Contact2 },
     { href: `/${platform}/settings/deals`,    label: "Deals",    icon: Briefcase },
+    { href: `/${platform}/settings/sources`,  label: "Sources",  icon: Tag },
     { href: `/${platform}/settings/emails`,   label: "Emails",   icon: Mail },
     { href: `/${platform}/settings/sip`,      label: "SIP Phone", icon: Phone },
     { href: `/${platform}/settings/klaviyo`,  label: "Klaviyo",   icon: Webhook },

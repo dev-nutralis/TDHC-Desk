@@ -55,7 +55,6 @@ const FIELD_TYPES = [
   { value: "radio",              label: "Radio" },
   { value: "select",             label: "Dropdown (single choice)" },
   { value: "conditional_select", label: "Conditional Dropdown" },
-  { value: "source_flow",        label: "Source Flow (with attribute groups)" },
 ];
 
 const OPTION_TYPES = new Set(["radio", "select", "conditional_select"]);

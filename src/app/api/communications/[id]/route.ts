@@ -12,8 +12,12 @@ export async function PUT(
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const data: Record<string, unknown> = {};
-  if ("deal_id"  in body) data.deal_id  = body.deal_id  ?? null;
-  if ("archived" in body) data.archived = Boolean(body.archived);
+  if ("deal_id"   in body) data.deal_id   = body.deal_id   ?? null;
+  if ("archived"  in body) data.archived  = Boolean(body.archived);
+  if ("is_spam"   in body) data.is_spam   = Boolean(body.is_spam);
+  if ("is_read"   in body) data.is_read   = Boolean(body.is_read);
+  if ("is_draft"  in body) data.is_draft  = Boolean(body.is_draft);
+  if ("thread_id" in body) data.thread_id = body.thread_id ?? null;
 
   const activity = await prisma.contactActivity.update({
     where: { id },

@@ -79,6 +79,7 @@ function buildFilterClauses(filterConditions: FilterCondition[]): { clauses: str
 
 const includeContact = {
   contact: { select: { id: true, field_values: true } },
+  source: { select: { id: true, name: true } },
   user: { select: { id: true, first_name: true, last_name: true } },
 };
 
@@ -156,12 +157,24 @@ export async function POST(req: NextRequest) {
   const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
   const platformId = await getPlatformId(slug) ?? null;
 
-  const { contact_id, field_values, user_id } = await req.json();
+  const { contact_id, field_values, user_id, source_id, attribute_ids } = await req.json();
 
   if (!contact_id)
     return NextResponse.json({ error: "contact_id is required" }, { status: 400 });
   if (!user_id)
     return NextResponse.json({ error: "user_id is required" }, { status: 400 });
+
+  // Inherit source/attributes from parent contact if not provided
+  let resolvedSourceId = source_id ?? null;
+  let resolvedAttributeIds = attribute_ids ?? null;
+  if (source_id === undefined || attribute_ids === undefined) {
+    const parent = await prisma.contact.findUnique({
+      where: { id: contact_id },
+      select: { source_id: true, attribute_ids: true },
+    });
+    if (source_id === undefined) resolvedSourceId = parent?.source_id ?? null;
+    if (attribute_ids === undefined) resolvedAttributeIds = parent?.attribute_ids ?? null;
+  }
 
   const deal = await prisma.deal.create({
     data: {
@@ -169,6 +182,8 @@ export async function POST(req: NextRequest) {
       field_values: field_values ?? {},
       user_id,
       platform_id: platformId,
+      source_id: resolvedSourceId,
+      attribute_ids: resolvedAttributeIds,
     },
     include: includeContact,
   });

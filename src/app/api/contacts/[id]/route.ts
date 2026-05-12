@@ -44,12 +44,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const existing = await prisma.contact.findFirst({ where: { id, platform_id: platformId } });
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+    const newAttributeIds = Array.isArray(attribute_ids) ? JSON.stringify(attribute_ids) : (attribute_ids ?? null);
+    const newSourceId = source_id || null;
+    const sourceChanged =
+      (source_id !== undefined && newSourceId !== existing.source_id) ||
+      (attribute_ids !== undefined && newAttributeIds !== existing.attribute_ids);
+
     const contact = await prisma.contact.update({
       where: { id },
       data: {
         field_values: field_values ?? undefined,
-        source_id: source_id || null,
-        attribute_ids: Array.isArray(attribute_ids) ? JSON.stringify(attribute_ids) : (attribute_ids ?? null),
+        source_id: newSourceId,
+        attribute_ids: newAttributeIds,
         user_id,
       },
       include: includeSource,
@@ -58,6 +64,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (field_values) {
       syncContactValuesToDeal(id, field_values as Record<string, unknown>).catch(console.error);
     }
+
+    // Propagate source change down to all linked deals
+    if (sourceChanged) {
+      await prisma.deal.updateMany({
+        where: { contact_id: id },
+        data: {
+          ...(source_id !== undefined && { source_id: newSourceId }),
+          ...(attribute_ids !== undefined && { attribute_ids: newAttributeIds }),
+        },
+      });
+    }
+
     return NextResponse.json(contact);
   } catch (err) {
     console.error("[PUT /api/contacts/:id]", err);

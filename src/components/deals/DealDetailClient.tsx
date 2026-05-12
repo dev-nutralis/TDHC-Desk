@@ -11,6 +11,7 @@ import {
   Calendar,
   Globe,
   Tag,
+  Hash,
 } from "lucide-react";
 import DealModal from "./DealModal";
 import DealActivityFeed from "./DealActivityFeed";
@@ -48,6 +49,7 @@ interface Deal {
   field_values: FieldValues | null;
   contact_id: string;
   contact: Contact;
+  source: ContactSource | null;
   user_id: string;
   user: { id: string; name: string };
   created_at: string;
@@ -83,6 +85,7 @@ function fmt(iso: string) {
 function iconForField(field_key: string, field_type: string): React.ReactNode {
   if (field_type === "multi_phone" || field_key === "mobile_numbers") return <Phone size={14} />;
   if (field_type === "multi_email" || field_key === "emails") return <Mail size={14} />;
+  if (field_type === "builtin_id" || field_key === "__id__") return <Hash size={14} />;
   if (field_type === "builtin_date" || field_key === "__added_on__") return <Calendar size={14} />;
   if (field_type === "builtin_source" || field_type === "source_select" || field_key === "__source__") return <Globe size={14} />;
   if (field_type === "source_flow") return <Globe size={14} />;
@@ -154,6 +157,20 @@ export default function DealDetailClient({ deal: initial, fields, profileConfig 
     const empty = <span className="text-sm text-[#C2C8CC]">—</span>;
 
     switch (field_type) {
+      case "builtin_id": {
+        return (
+          <span className="text-sm font-mono text-[#68717A] select-all" title={deal.id}>{deal.id}</span>
+        );
+      }
+
+      case "builtin_source": {
+        return (
+          <span className="text-sm text-[#2F3941]">
+            {deal.source?.name || <span className="text-[#C2C8CC]">—</span>}
+          </span>
+        );
+      }
+
       case "multi_phone": {
         const phones = (val as PhoneEntry[] | undefined) ?? [];
         if (phones.length === 0) return <p className="text-sm text-[#C2C8CC]">No phone numbers added</p>;

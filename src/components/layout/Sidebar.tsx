@@ -6,7 +6,7 @@ import { usePathname, useParams, useRouter } from "next/navigation";
 import {
   Users, Briefcase, Settings,
   Contact2, Phone, ChevronLeft, ChevronRight, CalendarDays, Inbox, CheckSquare,
-  ChevronDown, Check, Building2, LogOut,
+  ChevronDown, Check, Building2, LogOut, Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +21,7 @@ const navGroups = [
       { href: "/tasks",          label: "Tasks",          icon: CheckSquare },
       { href: "/calls",          label: "Calls",          icon: Phone },
       { href: "/communications", label: "Communications", icon: Inbox },
+      { href: "/email",          label: "Email",          icon: Mail },
     ],
   },
   {

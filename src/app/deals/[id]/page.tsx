@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 import DealDetailClient from "@/components/deals/DealDetailClient";
 
 export interface DealProfileConfigItem {
@@ -20,6 +22,14 @@ export default async function DealDetailPage({
 }) {
   const { id } = await params;
 
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+  const platform = platformId
+    ? await prisma.platform.findUnique({ where: { id: platformId }, select: { deal_show_source: true } })
+    : null;
+  const sourceEnabled = platform?.deal_show_source ?? false;
+
   const [deal, fields, profileConfigs] = await Promise.all([
     prisma.deal.findUnique({
       where: { id },
@@ -29,6 +39,7 @@ export default async function DealDetailPage({
             source: true,
           },
         },
+        source: true,
         user: true,
       },
     }),
@@ -73,19 +84,28 @@ export default async function DealDetailPage({
       has_notes: parseHasNotes(f.config),
     }));
   } else {
+    const BUILTINS: Record<string, { label: string; field_type: string }> = {
+      __id__:     { label: "ID",     field_type: "builtin_id"     },
+      __source__: { label: "Source", field_type: "builtin_source" },
+    };
     profileConfig = profileConfigs.map((pc) => {
+      const builtin = BUILTINS[pc.field_key];
       const df = fieldByKey[pc.field_key];
       return {
         field_key: pc.field_key,
         section: pc.section as "deal_info" | "details",
         sort_order: pc.sort_order,
         is_visible: pc.is_visible,
-        label: df?.label ?? pc.field_key,
-        field_type: df?.field_type ?? "text",
+        label: builtin?.label ?? df?.label ?? pc.field_key,
+        field_type: builtin?.field_type ?? df?.field_type ?? "text",
         options: df?.options ?? [],
         has_notes: parseHasNotes(df?.config),
       };
     });
+  }
+
+  if (!sourceEnabled) {
+    profileConfig = profileConfig.filter((c) => c.field_key !== "__source__");
   }
 
   return (

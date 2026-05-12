@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { Plus, Pencil, Eye, Trash2, GripVertical, Loader2, AlertTriangle, X, LayoutList, Download, Link2 } from "lucide-react";
 import ContactFieldModal from "./ContactFieldModal";
 import ImportDealFieldsModal from "./ImportDealFieldsModal";
+import SourceFieldRow, { AddSourceFieldButton } from "./SourceFieldSection";
+import { useSourceField } from "@/hooks/useSourceField";
 
 interface DealFieldOption { id: string; label: string; value: string; sort_order: number; }
 interface DealField {
@@ -63,6 +65,10 @@ function DeleteConfirm({ field, onClose, onConfirm }: { field: DealField; onClos
   );
 }
 
+type Item =
+  | { type: "field"; field: DealField }
+  | { type: "source" };
+
 export default function DealFieldsManager() {
   const [fields, setFields] = useState<DealField[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,6 +81,8 @@ export default function DealFieldsManager() {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
+  const source = useSourceField("deal");
+
   const fetchFields = useCallback(async () => {
     setLoading(true);
     const res = await fetch("/api/deal-fields");
@@ -83,6 +91,21 @@ export default function DealFieldsManager() {
   }, []);
 
   useEffect(() => { fetchFields(); }, [fetchFields]);
+
+  useEffect(() => {
+    const h = () => fetchFields();
+    window.addEventListener("source-field-changed", h);
+    return () => window.removeEventListener("source-field-changed", h);
+  }, [fetchFields]);
+
+  const items: Item[] = (() => {
+    const arr: Item[] = fields.map(f => ({ type: "field" as const, field: f }));
+    if (source.enabled) {
+      const insertAt = Math.max(0, Math.min(source.sortOrder, arr.length));
+      arr.splice(insertAt, 0, { type: "source" as const });
+    }
+    return arr;
+  })();
 
   const handleDelete = async (id: string) => { await fetch(`/api/deal-fields/${id}`, { method: "DELETE" }); fetchFields(); };
 
@@ -109,12 +132,30 @@ export default function DealFieldsManager() {
   const handleDrop = async (e: React.DragEvent, dropIdx: number) => {
     e.preventDefault();
     if (dragIdx === null || dragIdx === dropIdx) { setDragIdx(null); setDragOverIdx(null); return; }
-    const reordered = [...fields];
-    const [moved] = reordered.splice(dragIdx, 1);
-    reordered.splice(dropIdx, 0, moved);
-    setFields(reordered.map((f, i) => ({ ...f, sort_order: i })));
+
+    const newItems = [...items];
+    const [moved] = newItems.splice(dragIdx, 1);
+    newItems.splice(dropIdx, 0, moved);
+
+    const newSourceIdx = newItems.findIndex(it => it.type === "source");
+    const newFields: DealField[] = newItems
+      .map((it, i) => {
+        if (it.type !== "field") return null;
+        const offset = (newSourceIdx !== -1 && i > newSourceIdx) ? 1 : 0;
+        return { ...it.field, sort_order: i - offset };
+      })
+      .filter((f): f is DealField => f !== null);
+
+    setFields(newFields);
     setDragIdx(null); setDragOverIdx(null);
-    await Promise.all(reordered.map((f, i) => fetch(`/api/deal-fields/${f.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sort_order: i }) })));
+
+    const promises: Promise<unknown>[] = newFields.map(f =>
+      fetch(`/api/deal-fields/${f.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sort_order: f.sort_order }) })
+    );
+    if (newSourceIdx !== -1 && source.enabled && newSourceIdx !== source.sortOrder) {
+      promises.push(source.updateSortOrder(newSourceIdx));
+    }
+    await Promise.all(promises);
   };
 
   const existingFieldKeys = fields.map(f => f.field_key);
@@ -122,6 +163,7 @@ export default function DealFieldsManager() {
   return (
     <div className="space-y-3">
       <div className="flex justify-end gap-2">
+        <AddSourceFieldButton module="deal" />
         <button
           onClick={() => setImportOpen(true)}
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-sm font-medium border border-[#D8DCDE] text-[#68717A] bg-white hover:bg-[#F3F4F6] transition-all"
@@ -137,22 +179,40 @@ export default function DealFieldsManager() {
 
       <div className="bg-white rounded-lg border border-[#D8DCDE] overflow-hidden shadow-sm">
         {loading && <div className="flex items-center justify-center h-40"><Loader2 size={18} className="animate-spin text-[#68717A]" /></div>}
-        {!loading && fields.length === 0 && (
+
+        {!loading && items.length === 0 && (
           <div className="flex flex-col items-center gap-2 h-40 justify-center text-[#68717A]">
             <LayoutList size={28} strokeWidth={1.2} />
             <p className="text-sm font-medium">No fields defined yet.</p>
           </div>
         )}
 
-        {!loading && fields.map((field, idx) => {
-          const isLinked = !!field.source_module;
+        {!loading && items.map((it, idx) => {
           const isOver = dragOverIdx === idx && dragIdx !== idx;
           const isDragging = dragIdx === idx;
+
+          if (it.type === "source") {
+            return (
+              <SourceFieldRow
+                key="__source__"
+                module="deal"
+                isDragging={isDragging}
+                isDragOver={isOver}
+                onDragStart={e => handleDragStart(e, idx)}
+                onDragOver={e => handleDragOver(e, idx)}
+                onDragEnd={handleDragEnd}
+                onDrop={e => handleDrop(e, idx)}
+              />
+            );
+          }
+
+          const field = it.field;
+          const isLinked = !!field.source_module;
           const moduleLabel = field.source_module ? (MODULE_LABELS[field.source_module] ?? field.source_module) : null;
 
           return (
             <div key={field.id} draggable onDragStart={e => handleDragStart(e, idx)} onDragOver={e => handleDragOver(e, idx)} onDragEnd={handleDragEnd} onDrop={e => handleDrop(e, idx)}
-              className={["flex items-center gap-3 px-4 py-3 transition-colors group", idx < fields.length - 1 ? "border-b border-[#D8DCDE]" : "", isDragging ? "opacity-40 bg-[#F8F9F9]" : "hover:bg-[#F8F9F9]", isOver ? "border-t-2 border-t-[#038153]" : ""].join(" ")}>
+              className={["flex items-center gap-3 px-4 py-3 transition-colors group", idx < items.length - 1 ? "border-b border-[#D8DCDE]" : "", isDragging ? "opacity-40 bg-[#F8F9F9]" : "hover:bg-[#F8F9F9]", isOver ? "border-t-2 border-t-[#038153]" : ""].join(" ")}>
               <GripVertical size={15} className="text-[#C2C8CC] shrink-0 cursor-grab active:cursor-grabbing hover:text-[#68717A] transition-colors" />
               <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-[#2F3941]">{field.label}</span>

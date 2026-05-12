@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 import { randomUUID } from "crypto";
 import { waitUntil } from "@vercel/functions";
 
@@ -80,6 +82,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action, callId, direction, remoteNumber, contactId } = body;
 
+    const cookieStore = await cookies();
+    const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+    const platformId = await getPlatformId(slug) ?? null;
+
     const user = await prisma.user.findFirst();
     const sipAccount = user
       ? await prisma.sipAccount.findUnique({ where: { user_id: user.id } })
@@ -96,6 +102,7 @@ export async function POST(req: NextRequest) {
           contact_id: contactId ?? null,
           sip_account_id: sipAccount?.id ?? null,
           user_id: user?.id ?? null,
+          platform_id: platformId,
         },
       });
       return NextResponse.json({ callId: call.id });

@@ -15,9 +15,15 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const active = searchParams.get("active");
 
+  const platform = platformId
+    ? await prisma.platform.findUnique({ where: { id: platformId }, select: { lead_show_source: true } })
+    : null;
+  const sourceEnabled = platform?.lead_show_source ?? true;
+
   const where = {
     platform_id: platformId,
     ...(active === "true" ? { is_active: true } : {}),
+    ...(sourceEnabled ? {} : { field_type: { not: "source_select" } }),
   };
 
   const fields = await prisma.leadField.findMany({

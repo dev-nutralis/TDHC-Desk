@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import ContactFieldModal from "./ContactFieldModal";
 import ImportFieldsModal from "./ImportFieldsModal";
+import SourceFieldRow, { AddSourceFieldButton } from "./SourceFieldSection";
+import { useSourceField } from "@/hooks/useSourceField";
 
 interface ContactFieldOption {
   id: string;
@@ -102,6 +104,10 @@ function DeleteConfirm({ field, onClose, onConfirm }: {
   );
 }
 
+type Item =
+  | { type: "field"; field: ContactField }
+  | { type: "source" };
+
 export default function LeadFieldsManager() {
   const [fields, setFields] = useState<ContactField[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,7 +117,10 @@ export default function LeadFieldsManager() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  // Drag state
+  // Source field state
+  const source = useSourceField("lead");
+
+  // Drag state (indexes into unified `items` array)
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
@@ -123,6 +132,23 @@ export default function LeadFieldsManager() {
   }, []);
 
   useEffect(() => { fetchFields(); }, [fetchFields]);
+
+  // Refetch fields when source toggle changes (source_select rows might appear/disappear)
+  useEffect(() => {
+    const h = () => fetchFields();
+    window.addEventListener("source-field-changed", h);
+    return () => window.removeEventListener("source-field-changed", h);
+  }, [fetchFields]);
+
+  // Build unified items list with source inserted at its sort_order
+  const items: Item[] = (() => {
+    const arr: Item[] = fields.map(f => ({ type: "field" as const, field: f }));
+    if (source.enabled) {
+      const insertAt = Math.max(0, Math.min(source.sortOrder, arr.length));
+      arr.splice(insertAt, 0, { type: "source" as const });
+    }
+    return arr;
+  })();
 
   const handleDelete = async (id: string) => {
     await fetch(`/api/lead-fields/${id}`, { method: "DELETE" });
@@ -165,30 +191,44 @@ export default function LeadFieldsManager() {
       return;
     }
 
-    const reordered = [...fields];
-    const [moved] = reordered.splice(dragIdx, 1);
-    reordered.splice(dropIdx, 0, moved);
+    // Reorder items array
+    const newItems = [...items];
+    const [moved] = newItems.splice(dragIdx, 1);
+    newItems.splice(dropIdx, 0, moved);
+
+    // Compute new field sort_orders and source sort_order
+    const newSourceIdx = newItems.findIndex(it => it.type === "source");
+    const newFields: ContactField[] = newItems
+      .map((it, i) => {
+        if (it.type !== "field") return null;
+        const offset = (newSourceIdx !== -1 && i > newSourceIdx) ? 1 : 0;
+        return { ...it.field, sort_order: i - offset };
+      })
+      .filter((f): f is ContactField => f !== null);
 
     // Optimistic update
-    setFields(reordered.map((f, i) => ({ ...f, sort_order: i })));
+    setFields(newFields);
     setDragIdx(null);
     setDragOverIdx(null);
 
-    // Persist all new sort_orders in parallel
-    await Promise.all(
-      reordered.map((f, i) =>
-        fetch(`/api/lead-fields/${f.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sort_order: i }),
-        })
-      )
+    // Persist all changes in parallel
+    const promises: Promise<unknown>[] = newFields.map(f =>
+      fetch(`/api/lead-fields/${f.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sort_order: f.sort_order }),
+      })
     );
+    if (newSourceIdx !== -1 && source.enabled && newSourceIdx !== source.sortOrder) {
+      promises.push(source.updateSortOrder(newSourceIdx));
+    }
+    await Promise.all(promises);
   };
 
   return (
     <div className="space-y-3">
       <div className="flex justify-end gap-2">
+        <AddSourceFieldButton module="lead" />
         <button
           onClick={() => setImportOpen(true)}
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-sm font-medium border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] transition-all"
@@ -211,7 +251,7 @@ export default function LeadFieldsManager() {
           </div>
         )}
 
-        {!loading && fields.length === 0 && (
+        {!loading && items.length === 0 && (
           <div className="flex flex-col items-center gap-2 h-40 justify-center text-[#68717A]">
             <LayoutList size={28} strokeWidth={1.2} />
             <p className="text-sm font-medium">No lead fields defined yet.</p>
@@ -219,10 +259,26 @@ export default function LeadFieldsManager() {
           </div>
         )}
 
-        {!loading && fields.map((field, idx) => {
+        {!loading && items.map((it, idx) => {
           const isOver = dragOverIdx === idx && dragIdx !== idx;
           const isDragging = dragIdx === idx;
 
+          if (it.type === "source") {
+            return (
+              <SourceFieldRow
+                key="__source__"
+                module="lead"
+                isDragging={isDragging}
+                isDragOver={isOver}
+                onDragStart={e => handleDragStart(e, idx)}
+                onDragOver={e => handleDragOver(e, idx)}
+                onDragEnd={handleDragEnd}
+                onDrop={e => handleDrop(e, idx)}
+              />
+            );
+          }
+
+          const field = it.field;
           return (
             <div
               key={field.id}
@@ -233,7 +289,7 @@ export default function LeadFieldsManager() {
               onDrop={e => handleDrop(e, idx)}
               className={[
                 "flex items-center gap-3 px-4 py-3 transition-colors group",
-                idx < fields.length - 1 ? "border-b border-[#D8DCDE]" : "",
+                idx < items.length - 1 ? "border-b border-[#D8DCDE]" : "",
                 isDragging ? "opacity-40 bg-[#F8F9F9]" : "hover:bg-[#F8F9F9]",
                 isOver ? "border-t-2 border-t-[#038153]" : "",
               ].join(" ")}

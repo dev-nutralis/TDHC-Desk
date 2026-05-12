@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const platformId = await getPlatformId(slug) ?? null;
 
     const { id } = await params;
-    const { type, subject, body, html, attachments, phone } = await req.json();
+    const { type, subject, body, html, attachments, phone, thread_id } = await req.json();
 
     if (type !== "email" && type !== "note" && type !== "sms") {
       return NextResponse.json({ error: 'type must be "email", "note", or "sms"' }, { status: 400 });
@@ -106,12 +106,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         );
       }
 
+      const smtpPlatform = platformId
+        ? await prisma.platform.findUnique({
+            where: { id: platformId },
+            select: {
+              smtp_host: true, smtp_port: true, smtp_user: true,
+              smtp_pass: true, smtp_from: true, smtp_secure: true,
+            },
+          })
+        : null;
+
+      if (!smtpPlatform?.smtp_host || !smtpPlatform?.smtp_user || !smtpPlatform?.smtp_pass) {
+        return NextResponse.json(
+          { error: "SMTP is not configured for this platform. Go to Settings → Platform to set it up." },
+          { status: 422 },
+        );
+      }
+
       await sendEmail({
         to: recipient,
         subject: subject?.trim() || "(no subject)",
         text: body.trim(),
         ...(html ? { html: html.trim() } : {}),
         attachments: Array.isArray(attachments) ? attachments : [],
+        smtp: {
+          host: smtpPlatform.smtp_host,
+          port: smtpPlatform.smtp_port ?? 465,
+          secure: smtpPlatform.smtp_secure ?? true,
+          user: smtpPlatform.smtp_user,
+          pass: smtpPlatform.smtp_pass,
+          from: smtpPlatform.smtp_from ?? smtpPlatform.smtp_user,
+        },
       });
     }
 
@@ -120,19 +145,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         return NextResponse.json({ error: "phone number is required for SMS" }, { status: 400 });
       }
 
-      const result = await sendSms(phone.trim(), body.trim());
+      const platform = platformId ? await prisma.platform.findUnique({ where: { id: platformId }, select: { gsm_port: true } }) : null;
+      const gsmPort = platform?.gsm_port ? Number(platform.gsm_port) : undefined;
+
+      const result = await sendSms(phone.trim(), body.trim(), gsmPort);
       if (!result.success) {
         return NextResponse.json({ error: result.error ?? "Failed to send SMS" }, { status: 502 });
       }
     }
 
+    // Resolve thread_id for emails+notes (group by contact + normalized subject)
+    const normalizedSubject = (subject ?? "").toLowerCase().replace(/^re:\s*/i, "").trim();
+    const resolvedThreadId = thread_id
+      ?? (type === "email" || type === "note" ? `${id}::${normalizedSubject}` : null);
+
     const activity = await prisma.contactActivity.create({
       data: {
         contact_id: id,
+        platform_id: platformId,
         type,
         direction: "outbound",
         subject: type === "sms" ? phone?.trim() ?? null : subject?.trim() ?? null,
         body: type === "sms" ? body.trim() : (html?.trim() || body.trim()),
+        thread_id: resolvedThreadId,
+        is_read: true,
       },
     });
 

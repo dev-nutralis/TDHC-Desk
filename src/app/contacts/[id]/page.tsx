@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getPlatformId } from "@/lib/platform";
 import ContactDetailClient from "@/components/contacts/ContactDetailClient";
 
 export interface ProfileConfigItem {
@@ -19,6 +21,14 @@ export default async function ContactDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  const cookieStore = await cookies();
+  const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
+  const platformId = await getPlatformId(slug) ?? null;
+  const platform = platformId
+    ? await prisma.platform.findUnique({ where: { id: platformId }, select: { contact_show_source: true } })
+    : null;
+  const sourceEnabled = platform?.contact_show_source ?? true;
 
   const [contact, fields, profileConfigs] = await Promise.all([
     prisma.contact.findUnique({
@@ -49,6 +59,7 @@ export default async function ContactDetailPage({
 
   // Built-in field definitions
   const builtins: Record<string, Pick<ProfileConfigItem, "label" | "field_type" | "options" | "has_notes">> = {
+    __id__: { label: "ID", field_type: "builtin_id", options: [], has_notes: false },
     __source__: { label: "Source", field_type: "builtin_source", options: [], has_notes: false },
     __added_on__: { label: "Added on", field_type: "builtin_date", options: [], has_notes: false },
   };
@@ -97,6 +108,10 @@ export default async function ContactDetailPage({
         has_notes: parseHasNotes(cf?.config),
       };
     });
+  }
+
+  if (!sourceEnabled) {
+    profileConfig = profileConfig.filter((c) => c.field_key !== "__source__");
   }
 
   return (

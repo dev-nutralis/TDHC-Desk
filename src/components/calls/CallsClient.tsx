@@ -405,12 +405,17 @@ export function CallsClient({ initialCalls }: Props) {
       .catch(() => {});
   }, []);
 
-  // Refresh when call ends
-  const prevState = phone?.state;
+  // Refresh only when state transitions INTO idle (call ended), not on initial mount
+  const prevStateRef = useRef(phone?.state);
   useEffect(() => {
-    if (prevState === "idle") fetchCalls();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prevState]);
+    const prev = prevStateRef.current;
+    prevStateRef.current = phone?.state;
+    const wasInCall = prev === "dialing" || prev === "ringing_in" || prev === "ringing_out" || prev === "active" || prev === "on_hold" || prev === "ending";
+    if (wasInCall && phone?.state === "idle") {
+      const t = setTimeout(fetchCalls, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [phone?.state, fetchCalls]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

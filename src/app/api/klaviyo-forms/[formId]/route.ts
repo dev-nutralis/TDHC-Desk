@@ -9,9 +9,10 @@ export async function PATCH(
   const { formId } = await params;
   try {
     const body = await req.json();
-    const { mappings, create_deal, deal_mappings } = body as {
+    const { mappings, create_deal, create_deal_new_only, deal_mappings } = body as {
       mappings?: { klaviyo_field: string; contact_field_key: string; transform?: string }[];
       create_deal?: boolean;
+      create_deal_new_only?: boolean;
       deal_mappings?: { klaviyo_field: string; contact_field_key: string; transform?: string }[];
     };
 
@@ -25,6 +26,7 @@ export async function PATCH(
     const data: Record<string, unknown> = {};
     if (mappings !== undefined) data.mappings = mappings;
     if (create_deal !== undefined) data.create_deal = create_deal;
+    if (create_deal_new_only !== undefined) data.create_deal_new_only = create_deal_new_only;
     if (deal_mappings !== undefined) data.deal_mappings = deal_mappings;
 
     const updatedForm = await prisma.klaviyoForm.update({

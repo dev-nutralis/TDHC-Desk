@@ -35,6 +35,12 @@ function resolveVirtualField(klaviyoField: string, formName: string): string | n
   return null;
 }
 
+// Resolves special static_value tokens set in the mapping UI.
+function resolveStaticValue(value: string): string {
+  if (value === "$now") return new Date().toISOString().split("T")[0];
+  return value;
+}
+
 // Interpolates a template string like "{$form_name} - {first_name} {last_name}"
 // replacing each {key} with its resolved value.
 function interpolateTemplate(
@@ -93,7 +99,22 @@ export async function POST(
     const mappings = (form.mappings as Mapping[]) ?? [];
     const dealMappings = (form.deal_mappings as Mapping[]) ?? [];
 
+    const platform_id = form.platform_id;
+
+    // Load field type metadata so we know which targets are relations (e.g. source_select)
+    const contactFieldKeys = mappings.map((m) => m.contact_field_key).filter(Boolean);
+    const fieldMeta = contactFieldKeys.length > 0
+      ? await prisma.contactField.findMany({
+          where: { platform_id, field_key: { in: contactFieldKeys } },
+          select: { field_key: true, field_type: true },
+        })
+      : [];
+    const fieldTypeMap = new Map(fieldMeta.map((f) => [f.field_key, f.field_type]));
+    // Builtin source field (not in ContactField table)
+    fieldTypeMap.set("__source__", "builtin_source");
+
     let fieldValues: Record<string, unknown> = {};
+    let resolvedSourceId: string | null = null;
 
     // Email is always read directly from the Klaviyo profile — required for upsert
     const email = readProfileField(profile, "email");
@@ -105,12 +126,33 @@ export async function POST(
     if (mappings.length > 0) {
       for (const { klaviyo_field, contact_field_key, transform, static_value } of mappings) {
         const raw = static_value !== undefined && static_value !== ""
-          ? static_value
+          ? resolveStaticValue(static_value)
           : klaviyo_field.includes("{")
             ? interpolateTemplate(klaviyo_field, profile, form.name)
             : resolveVirtualField(klaviyo_field, form.name) ?? readProfileField(profile, klaviyo_field);
         const value = applyTransform(raw, transform);
-        if (value) fieldValues[contact_field_key] = value;
+        if (!value) continue;
+
+        const fieldType = fieldTypeMap.get(contact_field_key);
+
+        if (fieldType === "source_select" || fieldType === "builtin_source") {
+          // Resolve by name (or create if missing) and store on Contact.source_id
+          const existingSource = await prisma.source.findFirst({
+            where: { name: value, platform_id },
+            select: { id: true },
+          });
+          if (existingSource) {
+            resolvedSourceId = existingSource.id;
+          } else {
+            const created = await prisma.source.create({
+              data: { name: value, platform_id },
+              select: { id: true },
+            });
+            resolvedSourceId = created.id;
+          }
+        } else {
+          fieldValues[contact_field_key] = value;
+        }
       }
     } else {
       // Fallback: auto-detect standard fields so existing forms without mappings still work
@@ -121,8 +163,6 @@ export async function POST(
         }
       }
     }
-
-    const platform_id = form.platform_id;
 
     // 4. Find existing contact by email + platform_id
     const existing = await prisma.$queryRawUnsafe<{ id: string; field_values: unknown }[]>(
@@ -144,7 +184,10 @@ export async function POST(
 
       await prisma.contact.update({
         where: { id: existing[0].id },
-        data: { field_values: updated as Prisma.InputJsonValue },
+        data: {
+          field_values: updated as Prisma.InputJsonValue,
+          ...(resolvedSourceId ? { source_id: resolvedSourceId } : {}),
+        },
       });
     } else {
       // 5b. Create new contact — user_id is required by schema, use the first available user
@@ -158,12 +201,14 @@ export async function POST(
           field_values: fieldValues as Prisma.InputJsonValue,
           platform_id,
           user_id: defaultUser.id,
+          ...(resolvedSourceId ? { source_id: resolvedSourceId } : {}),
         },
       });
     }
 
     // 6. Optionally create a deal
-    if (form.create_deal) {
+    const isNewContact = existing.length === 0;
+    if (form.create_deal && (!form.create_deal_new_only || isNewContact)) {
       // Find the contact we just created/updated
       const contact = await prisma.$queryRawUnsafe<{ id: string; user_id: string }[]>(
         `SELECT id, user_id FROM "Contact" WHERE field_values->>'email' = $1 AND platform_id = $2 LIMIT 1`,
@@ -178,16 +223,44 @@ export async function POST(
       ))[0];
 
       if (contactRow) {
+        // Load deal field types so we can detect source-type targets
+        const dealFieldKeys = dealMappings.map((m) => m.contact_field_key).filter(Boolean);
+        const dealFieldMeta = dealFieldKeys.length > 0
+          ? await prisma.dealField.findMany({
+              where: { platform_id, field_key: { in: dealFieldKeys } },
+              select: { field_key: true, field_type: true },
+            })
+          : [];
+        const dealFieldTypeMap = new Map(dealFieldMeta.map((f) => [f.field_key, f.field_type]));
+        dealFieldTypeMap.set("__source__", "builtin_source");
+
         const dealFieldValues: Record<string, unknown> = {};
+        let resolvedDealSourceId: string | null = null;
+
         for (const { klaviyo_field, contact_field_key, transform, static_value } of dealMappings) {
           const raw = static_value !== undefined && static_value !== ""
-            ? static_value
+            ? resolveStaticValue(static_value)
             : klaviyo_field.includes("{")
               ? interpolateTemplate(klaviyo_field, profile, form.name)
               : resolveVirtualField(klaviyo_field, form.name) ?? readProfileField(profile, klaviyo_field);
           const value = applyTransform(raw, transform);
-          if (value) dealFieldValues[contact_field_key] = value;
+          if (!value) continue;
+
+          const fieldType = dealFieldTypeMap.get(contact_field_key);
+          if (fieldType === "source_select" || fieldType === "builtin_source") {
+            const existingSource = await prisma.source.findFirst({
+              where: { name: value, platform_id },
+              select: { id: true },
+            });
+            resolvedDealSourceId = existingSource?.id
+              ?? (await prisma.source.create({ data: { name: value, platform_id }, select: { id: true } })).id;
+          } else {
+            dealFieldValues[contact_field_key] = value;
+          }
         }
+
+        // Inherit source from contact if not explicitly set in deal mappings
+        const finalSourceId = resolvedDealSourceId ?? resolvedSourceId;
 
         await prisma.deal.create({
           data: {
@@ -195,6 +268,7 @@ export async function POST(
             user_id: contactRow.user_id,
             platform_id,
             field_values: dealFieldValues as Prisma.InputJsonValue,
+            ...(finalSourceId ? { source_id: finalSourceId } : {}),
           },
         });
       }

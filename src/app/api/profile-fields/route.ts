@@ -7,6 +7,7 @@ import { getPlatformId } from "@/lib/platform";
 // Built-in synthetic fields (not stored in ContactField table)
 // ---------------------------------------------------------------------------
 const BUILTINS: Record<string, { label: string; field_type: string }> = {
+  __id__: { label: "ID", field_type: "builtin_id" },
   __source__: { label: "Source", field_type: "builtin_source" },
   __added_on__: { label: "Added on", field_type: "builtin_date" },
 };
@@ -128,6 +129,12 @@ export async function GET(_req: NextRequest) {
     const slug = cookieStore.get("x-platform-slug")?.value ?? "evalley";
     const platformId = await getPlatformId(slug) ?? null;
 
+    // Source field is controlled by platform toggle
+    const platform = platformId
+      ? await prisma.platform.findUnique({ where: { id: platformId }, select: { contact_show_source: true } })
+      : null;
+    const sourceEnabled = platform?.contact_show_source ?? true;
+
     const dbConfigs = await prisma.profileFieldConfig.findMany({
       where: { platform_id: platformId },
       orderBy: [{ section: "asc" }, { sort_order: "asc" }],
@@ -148,7 +155,15 @@ export async function GET(_req: NextRequest) {
             is_visible: boolean;
           }>);
 
-    const body = await buildResponse(platformId, rawConfigs);
+    // Filter out __source__ if source field is disabled for contacts
+    const filteredConfigs = sourceEnabled
+      ? rawConfigs
+      : rawConfigs.filter((c) => c.field_key !== "__source__");
+
+    const body = await buildResponse(platformId, filteredConfigs);
+    if (!sourceEnabled) {
+      body.available = body.available.filter((a) => a.field_key !== "__source__");
+    }
     return NextResponse.json(body);
   } catch (err) {
     console.error("[GET /api/profile-fields]", err);

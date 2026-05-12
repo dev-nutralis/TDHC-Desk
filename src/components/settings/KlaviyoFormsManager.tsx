@@ -34,6 +34,7 @@ interface KlaviyoForm {
   platform_id: string;
   mappings: FieldMapping[];
   create_deal: boolean;
+  create_deal_new_only: boolean;
   deal_mappings: FieldMapping[];
 }
 
@@ -170,6 +171,7 @@ function TemplateInput({
 function MappingRows({
   mappings,
   fields,
+  sources,
   loadingFields,
   datalistId,
   showTransform = false,
@@ -179,6 +181,7 @@ function MappingRows({
 }: {
   mappings: FieldMapping[];
   fields: ContactField[];
+  sources: { id: string; name: string }[];
   loadingFields: boolean;
   datalistId: string;
   showTransform?: boolean;
@@ -207,13 +210,18 @@ function MappingRows({
       )}
       {mappings.map((mapping, i) => {
         const selectedField = fields.find((f) => f.field_key === mapping.contact_field_key);
-        const isSelect = selectedField?.field_type === "select" || selectedField?.field_type === "radio";
-        const hasOptions = isSelect && (selectedField?.options?.length ?? 0) > 0;
-
-        const hideKlaviyoField = showStaticValue && isSelect;
+        const fieldType = selectedField?.field_type ?? "text";
+        const isTextLike = fieldType === "text" || fieldType === "textarea";
+        const isSelectLike = fieldType === "select" || fieldType === "radio";
+        const isDateField = fieldType === "date";
+        const isSourceField = fieldType === "builtin_source" || fieldType === "source_select";
+        const hasOptions = isSelectLike && (selectedField?.options?.length ?? 0) > 0;
+        const hideKlaviyoField = showStaticValue && !isTextLike && !isSourceField;
+        const useNow = mapping.static_value === "$now";
 
         return (
           <div key={i} className={`grid ${cols} gap-2 items-start`}>
+            {/* Klaviyo field / fixed value placeholder */}
             {hideKlaviyoField ? (
               <div className="h-8 flex items-center px-3 rounded-md border border-[#D8DCDE] bg-[#F3F4F6]">
                 <span className="text-xs text-[#C2C8CC]">Fixed value only</span>
@@ -225,7 +233,10 @@ function MappingRows({
                 onChange={(v) => onUpdate(i, "klaviyo_field", v)}
               />
             )}
+
             <span className="text-[#C2C8CC] text-xs select-none">→</span>
+
+            {/* Target field selector */}
             <div className="relative">
               <select
                 value={mapping.contact_field_key}
@@ -239,22 +250,73 @@ function MappingRows({
               </select>
               <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
             </div>
+
+            {/* Transform — only for text-like fields */}
             {showTransform && (
-              <div className="relative">
-                <select
-                  value={mapping.transform ?? ""}
-                  onChange={(e) => onUpdate(i, "transform", e.target.value)}
-                  className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
-                >
-                  <option value="">None</option>
-                  <option value="split_name_first">Split name → First</option>
-                  <option value="split_name_last">Split name → Last</option>
-                </select>
-                <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
-              </div>
+              !isTextLike ? (
+                <div className="h-8" />
+              ) : (
+                <div className="relative">
+                  <select
+                    value={mapping.transform ?? ""}
+                    onChange={(e) => onUpdate(i, "transform", e.target.value)}
+                    className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+                  >
+                    <option value="">None</option>
+                    <option value="split_name_first">Split name → First</option>
+                    <option value="split_name_last">Split name → Last</option>
+                  </select>
+                  <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+                </div>
+              )
             )}
+
+            {/* Fixed value */}
             {showStaticValue && (
-              hasOptions ? (
+              isDateField ? (
+                <div className="space-y-1.5">
+                  <div className="flex rounded-md border border-[#D8DCDE] overflow-hidden text-xs font-medium">
+                    <button
+                      type="button"
+                      onClick={() => onUpdate(i, "static_value", "$now")}
+                      className={`flex-1 h-8 px-2 transition-colors ${useNow ? "bg-[#038153] text-white" : "bg-white text-[#68717A] hover:bg-[#F3F4F6]"}`}
+                    >
+                      Submission date
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUpdate(i, "static_value", "")}
+                      className={`flex-1 h-8 px-2 border-l border-[#D8DCDE] transition-colors ${!useNow ? "bg-[#038153] text-white" : "bg-white text-[#68717A] hover:bg-[#F3F4F6]"}`}
+                    >
+                      Fixed date
+                    </button>
+                  </div>
+                  {!useNow && (
+                    <input
+                      type="date"
+                      value={mapping.static_value ?? ""}
+                      onChange={(e) => onUpdate(i, "static_value", e.target.value)}
+                      className="w-full h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] transition-colors"
+                    />
+                  )}
+                </div>
+              ) : isSourceField ? (
+                <div className="relative">
+                  <select
+                    value={mapping.static_value ?? ""}
+                    onChange={(e) => onUpdate(i, "static_value", e.target.value)}
+                    className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+                  >
+                    <option value="">— map from Klaviyo —</option>
+                    {sources.length === 0
+                      ? <option disabled>No sources defined</option>
+                      : sources.map(s => (
+                          <option key={s.id} value={s.name}>{s.name}</option>
+                        ))}
+                  </select>
+                  <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+                </div>
+              ) : hasOptions ? (
                 <div className="relative">
                   <select
                     value={mapping.static_value ?? ""}
@@ -268,9 +330,9 @@ function MappingRows({
                   </select>
                   <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
                 </div>
-              ) : (
+              ) : isTextLike ? null : (
                 <input
-                  type="text"
+                  type={fieldType === "number" ? "number" : "text"}
                   value={mapping.static_value ?? ""}
                   onChange={(e) => onUpdate(i, "static_value", e.target.value)}
                   placeholder="Fixed value"
@@ -278,6 +340,7 @@ function MappingRows({
                 />
               )
             )}
+
             <button onClick={() => onRemove(i)} title="Remove" className="w-7 h-7 flex items-center justify-center rounded-md text-[#68717A] hover:bg-[#FFF0F1] hover:text-[#CC3340] transition-colors">
               <Trash2 size={13} />
             </button>
@@ -305,8 +368,10 @@ function MappingEditor({
   const [mappings, setMappings] = useState<FieldMapping[]>(form.mappings ?? []);
   const [dealMappings, setDealMappings] = useState<FieldMapping[]>(form.deal_mappings ?? []);
   const [createDeal, setCreateDeal] = useState<boolean>(form.create_deal ?? false);
+  const [createDealNewOnly, setCreateDealNewOnly] = useState<boolean>(form.create_deal_new_only ?? false);
   const [contactFields, setContactFields] = useState<ContactField[]>([]);
   const [dealFields, setDealFields] = useState<ContactField[]>([]);
+  const [sources, setSources] = useState<{ id: string; name: string }[]>([]);
   const [loadingFields, setLoadingFields] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -316,15 +381,22 @@ function MappingEditor({
     const fetchFields = async () => {
       setLoadingFields(true);
       try {
-        const [cRes, dRes] = await Promise.all([
+        const [cRes, dRes, sRes] = await Promise.all([
           fetch("/api/contact-fields"),
           fetch("/api/deal-fields"),
+          fetch("/api/sources"),
         ]);
         const cData = cRes.ok ? (await cRes.json()) as ContactField[] : [];
         const dData = dRes.ok ? (await dRes.json()) as ContactField[] : [];
+        const sData = sRes.ok ? (await sRes.json()) as { id: string; name: string }[] : [];
+        // Builtins are not stored in ContactField/DealField tables — inject for mapping support
+        const builtinSourceField: ContactField = {
+          id: "__source__", field_key: "__source__", label: "★ Source (global field)", field_type: "builtin_source",
+        };
         if (!cancelled) {
-          setContactFields(cData);
-          setDealFields(dData);
+          setContactFields([builtinSourceField, ...cData]);
+          setDealFields([builtinSourceField, ...dData]);
+          setSources(sData.map(s => ({ id: s.id, name: s.name })));
         }
       } catch {
         // silently fail
@@ -353,7 +425,7 @@ function MappingEditor({
       const res = await fetch(`/api/klaviyo-forms/${form.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mappings, create_deal: createDeal, deal_mappings: dealMappings }),
+        body: JSON.stringify({ mappings, create_deal: createDeal, create_deal_new_only: createDealNewOnly, deal_mappings: dealMappings }),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: string };
@@ -388,9 +460,11 @@ function MappingEditor({
         <MappingRows
           mappings={mappings}
           fields={contactFields}
+          sources={sources}
           loadingFields={loadingFields}
           datalistId={datalistId}
           showTransform
+          showStaticValue
           onUpdate={updateContactRow}
           onRemove={removeContactRow}
         />
@@ -418,11 +492,26 @@ function MappingEditor({
         </div>
 
         {createDeal && (
-          <div className="space-y-2">
+          <div className="space-y-3">
+            {/* New-contact-only sub-option */}
+            <div className="flex items-center justify-between rounded-md bg-white border border-[#D8DCDE] px-3 py-2">
+              <div>
+                <p className="text-xs font-medium text-[#2F3941]">Only for new contacts</p>
+                <p className="text-[11px] text-[#68717A] mt-0.5">Skip deal creation when the contact already exists</p>
+              </div>
+              <button
+                onClick={() => setCreateDealNewOnly((v) => !v)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${createDealNewOnly ? "bg-[#038153]" : "bg-[#D8DCDE]"}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${createDealNewOnly ? "translate-x-4" : "translate-x-0.5"}`} />
+              </button>
+            </div>
+
             <p className="text-[11px] font-medium text-[#68717A] uppercase tracking-wide">Deal Field Mappings</p>
             <MappingRows
               mappings={dealMappings}
               fields={dealFields}
+              sources={sources}
               loadingFields={loadingFields}
               datalistId={datalistId}
               showStaticValue
