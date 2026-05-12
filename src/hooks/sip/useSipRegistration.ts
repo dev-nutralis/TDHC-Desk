@@ -17,10 +17,10 @@ const _g = globalThis as typeof globalThis & {
   __sipInitKey: string | null;
   __sipInitializing: boolean;
 };
-if (!("__sipPhone" in _g)) _g.__sipPhone = null;
-if (!("__sipDestroy" in _g)) _g.__sipDestroy = null;
-if (!("__sipInitKey" in _g)) _g.__sipInitKey = null;
-if (!("__sipInitializing" in _g)) _g.__sipInitializing = false;
+if (_g.__sipPhone === undefined) _g.__sipPhone = null;
+if (_g.__sipDestroy === undefined) _g.__sipDestroy = null;
+if (_g.__sipInitKey === undefined) _g.__sipInitKey = null;
+if (_g.__sipInitializing === undefined) _g.__sipInitializing = false;
 
 function sdkDestroy() {
   if (_g.__sipDestroy) {

@@ -22,6 +22,7 @@ type FieldValues = Record<string, unknown>;
 interface DealFieldOption { id: string; label: string; value: string; }
 interface DealField {
   id: string; label: string; field_key: string; field_type: string;
+  sort_order: number;
   is_active: boolean; is_filterable: boolean; config: string | null; options: DealFieldOption[];
   source_module: string | null; source_field_id: string | null;
 }

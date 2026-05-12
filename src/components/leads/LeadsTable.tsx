@@ -22,6 +22,7 @@ interface LeadField {
   label: string;
   field_key: string;
   field_type: string;
+  sort_order: number;
   is_active: boolean;
   config: string | null;
   options: LeadFieldOption[];
