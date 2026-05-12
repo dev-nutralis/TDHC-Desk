@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser, type ParsedMail } from "mailparser";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export interface SyncResult {
@@ -7,6 +8,23 @@ export interface SyncResult {
   skipped: number;
   errors: number;
   throttled?: boolean;
+}
+
+function parseSenderName(rawName: string | undefined | null): { first_name: string; last_name: string } {
+  if (!rawName) return { first_name: "", last_name: "" };
+  const cleaned = rawName.replace(/^["']|["']$/g, "").trim();
+  if (!cleaned) return { first_name: "", last_name: "" };
+
+  // "Last, First" format
+  if (cleaned.includes(",")) {
+    const [last, first] = cleaned.split(",").map((s) => s.trim());
+    return { first_name: first ?? "", last_name: last ?? "" };
+  }
+
+  // "First Last" / "First Middle Last"
+  const parts = cleaned.split(/\s+/);
+  if (parts.length === 1) return { first_name: parts[0], last_name: "" };
+  return { first_name: parts[0], last_name: parts.slice(1).join(" ") };
 }
 
 function stripQuotedReply(text: string): string {
@@ -140,6 +158,12 @@ export async function syncInbox(platformId: string): Promise<SyncResult> {
           // O(1) lookup instead of findMany per email
           let contactId = emailToContactId.get(lookupAddr);
 
+          // Extract sender display name from envelope (e.g. "John Doe" <john@x.com>)
+          const senderName = isOutbound
+            ? (Array.isArray(parsed.to) ? parsed.to[0]?.value?.[0]?.name : parsed.to?.value?.[0]?.name) ?? ""
+            : parsed.from?.value?.[0]?.name ?? "";
+          const { first_name, last_name } = parseSenderName(senderName);
+
           // Auto-create contact for unknown inbound senders if configured
           if (!contactId) {
             if (isOutbound || !autoSourceId || !defaultOwnerId) {
@@ -153,12 +177,30 @@ export async function syncInbox(platformId: string): Promise<SyncResult> {
                 source_id: autoSourceId,
                 field_values: {
                   emails: [{ address: lookupAddr, is_main: true, note: "" }],
+                  ...(first_name ? { first_name } : {}),
+                  ...(last_name ? { last_name } : {}),
                 },
               },
               select: { id: true },
             });
             contactId = created.id;
             emailToContactId.set(lookupAddr, contactId);
+          } else if (first_name || last_name) {
+            // Backfill missing name on existing contact (don't overwrite existing values)
+            const existing = await prisma.contact.findUnique({
+              where: { id: contactId },
+              select: { field_values: true },
+            });
+            const fv = (existing?.field_values as Record<string, unknown> | null) ?? {};
+            const updates: Record<string, unknown> = {};
+            if (first_name && !fv.first_name) updates.first_name = first_name;
+            if (last_name && !fv.last_name) updates.last_name = last_name;
+            if (Object.keys(updates).length > 0) {
+              await prisma.contact.update({
+                where: { id: contactId },
+                data: { field_values: { ...fv, ...updates } as Prisma.InputJsonValue },
+              });
+            }
           }
 
           const rawText =
