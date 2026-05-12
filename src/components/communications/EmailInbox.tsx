@@ -51,10 +51,19 @@ interface DealResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function getMainEmail(fv: FieldValues | null): string {
+  const emails = fv?.emails as { address?: string; is_main?: boolean }[] | undefined;
+  if (!Array.isArray(emails) || emails.length === 0) return "";
+  const main = emails.find(e => e.is_main) ?? emails[0];
+  return main?.address ?? "";
+}
+
 function contactName(fv: FieldValues | null): string {
   const first = (fv?.first_name as string) ?? "";
   const last  = (fv?.last_name  as string) ?? "";
-  return [first, last].filter(Boolean).join(" ") || "—";
+  const name = [first, last].filter(Boolean).join(" ").trim();
+  if (name) return name;
+  return getMainEmail(fv) || "—";
 }
 
 function dealName(fv: FieldValues | null): string {
@@ -76,7 +85,10 @@ function relativeTime(iso: string): string {
 function initials(fv: FieldValues | null): string {
   const first = ((fv?.first_name as string) ?? "").trim();
   const last  = ((fv?.last_name  as string) ?? "").trim();
-  return [(first[0] ?? ""), (last[0] ?? "")].join("").toUpperCase() || "?";
+  const fromName = [(first[0] ?? ""), (last[0] ?? "")].join("").toUpperCase();
+  if (fromName) return fromName;
+  const email = getMainEmail(fv);
+  return email.charAt(0).toUpperCase() || "?";
 }
 
 function stripHtml(html: string): string {
