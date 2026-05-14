@@ -94,9 +94,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const search    = searchParams.get("search") || "";
     const contactId = searchParams.get("contact_id") || "";
-    const page      = parseInt(searchParams.get("page") || "1");
-    const limit     = 20;
-    const skip      = (page - 1) * limit;
+    const limit     = Math.min(parseInt(searchParams.get("limit") || "45"), 500);
+    const offset    = parseInt(searchParams.get("offset") || "0");
 
     let filterConditions: FilterCondition[] = [];
     try {
@@ -141,13 +140,13 @@ export async function GET(req: NextRequest) {
         where,
         include: includeContact,
         orderBy: { created_at: "desc" },
-        skip,
+        skip: offset,
         take: limit,
       }),
       prisma.deal.count({ where }),
     ]);
 
-    return NextResponse.json({ deals, total, page, pages: Math.ceil(total / limit) });
+    return NextResponse.json({ deals, total, offset, hasMore: offset + deals.length < total });
   } catch (err) {
     console.error("[GET /api/deals]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });

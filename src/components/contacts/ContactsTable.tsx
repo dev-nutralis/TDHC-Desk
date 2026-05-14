@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X, CheckSquare } from "lucide-react";
+import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X, CheckSquare, Upload } from "lucide-react";
 import ContactFilterPanel, { FilterCondition, chipLabel } from "./ContactFilterPanel";
 import ContactModal from "./ContactModal";
 import ContactDeleteDialog from "./ContactDeleteDialog";
+import ContactImportModal from "./ContactImportModal";
 import { useSourceField } from "@/hooks/useSourceField";
 import SourceCellPicker from "@/components/shared/SourceCellPicker";
 
@@ -617,6 +618,7 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(true);
   const [fields, setFields] = useState<ContactField[]>([]);
@@ -914,6 +916,12 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
               {total} {total === 1 ? "contact" : "contacts"}
             </span>
           )}
+          <button
+            onClick={() => setImportOpen(true)}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-sm font-medium border border-[#D8DCDE] text-[#2F3941] hover:bg-[#F3F4F6] active:scale-95 transition-all"
+          >
+            <Upload size={14} strokeWidth={2} /> Import CSV
+          </button>
           <button
             onClick={() => setModalOpen(true)}
             className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-sm font-medium text-white hover:brightness-110 active:scale-95 transition-all"
@@ -1408,6 +1416,13 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
           />
         );
       })()}
+
+      <ContactImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onDone={() => { setImportOpen(false); fetchContacts(); }}
+        defaultUserId={defaultUserId}
+      />
 
       <ContactModal
         open={modalOpen}

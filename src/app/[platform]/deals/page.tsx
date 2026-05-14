@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 import DealsTable from "@/components/deals/DealsTable";
 
 export default async function DealsPage() {
-  const defaultUser = await prisma.user.findFirst();
+  const session = await getSession();
+  const defaultUser = session?.userId
+    ? await prisma.user.findUnique({ where: { id: session.userId } })
+    : await prisma.user.findFirst();
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -10,7 +14,7 @@ export default async function DealsPage() {
         <span className="font-medium text-[#2F3941]">Deals</span>
       </header>
       <div className="flex-1 overflow-auto p-6">
-        <DealsTable defaultUserId={defaultUser?.id ?? ""} />
+        <DealsTable defaultUserId={defaultUser?.id ?? ""} userRole={defaultUser?.role ?? "admin"} />
       </div>
     </div>
   );

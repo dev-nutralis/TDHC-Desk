@@ -40,7 +40,7 @@ interface Deal {
   created_at: string;
 }
 
-interface DealsResponse { deals: Deal[]; total: number; page: number; pages: number; }
+interface DealsResponse { deals: Deal[]; total: number; offset: number; hasMore: boolean; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -404,19 +404,29 @@ type Column =
   | { type: "field"; field: DealField }
   | { type: "source" };
 
-export default function DealsTable({ defaultUserId }: { defaultUserId: string }) {
+export default function DealsTable({ defaultUserId, userRole }: { defaultUserId: string; userRole?: string }) {
+  const isSuperAdmin = userRole === "super_admin";
   const router = useRouter();
   const params = useParams();
   const platform = (params?.platform as string) ?? "";
   const source = useSourceField("deal");
-  const [data, setData]           = useState<DealsResponse | null>(null);
+  const [deals, setDeals]         = useState<Deal[]>([]);
+  const [total, setTotal]         = useState(0);
+  const [hasMore, setHasMore]     = useState(false);
+  const [offset, setOffset]       = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [search, setSearch]       = useState("");
+  const [loading, setLoading]     = useState(true);
+  // selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  // infinite scroll sentinel
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const [fields, setFields]       = useState<DealField[]>([]);
   const [fieldsLoading, setFl]    = useState(true);
-  const [search, setSearch]       = useState("");
-  const [page, setPage]           = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteDeal, setDeleteDeal] = useState<Deal | null>(null);
-  const [loading, setLoading]     = useState(true);
 
   const [filters, setFilters]       = useState<FilterCondition[]>([]);
   const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null);
@@ -459,10 +469,9 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
       .then(r => r.json()).then((f: DealField[]) => setFields(Array.isArray(f) ? f : [])).catch(() => {}).finally(() => setFl(false));
   }, []);
 
-  const fetchDeals = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams({ page: String(page) });
-    if (search) params.set("search", search);
+  const buildParams = useCallback((currentOffset: number) => {
+    const p = new URLSearchParams({ offset: String(currentOffset), limit: "45" });
+    if (search) p.set("search", search);
     const noValueOps = new Set(["is_empty", "not_empty", "is_true", "is_false"]);
     const parsed: FilterCondition[] = JSON.parse(filtersJson);
     const active = parsed.filter(f => {
@@ -470,19 +479,50 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
       if (f.operator === "range") return !!(f.value?.trim() || f.value2?.trim());
       return f.value.trim() !== "";
     });
-    if (active.length > 0) params.set("filters", JSON.stringify(active));
-    const res = await fetch(`/api/deals?${params}`);
-    setData(await res.json());
+    if (active.length > 0) p.set("filters", JSON.stringify(active));
+    return p;
+  }, [search, filtersJson]);
+
+  const fetchDeals = useCallback(async () => {
+    setLoading(true);
+    setSelectedIds(new Set());
+    const res = await fetch(`/api/deals?${buildParams(0)}`);
+    const json = await res.json();
+    setDeals(json.deals ?? []);
+    setTotal(json.total ?? 0);
+    setHasMore(json.hasMore ?? false);
+    setOffset((json.deals ?? []).length);
     setLoading(false);
-  }, [page, search, filtersJson]);
+  }, [buildParams]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const res = await fetch(`/api/deals?${buildParams(offset)}`);
+    const json = await res.json();
+    setDeals(prev => [...prev, ...(json.deals ?? [])]);
+    setTotal(json.total ?? 0);
+    setHasMore(json.hasMore ?? false);
+    setOffset(prev => prev + (json.deals ?? []).length);
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, offset, buildParams]);
 
   useEffect(() => { const t = setTimeout(fetchDeals, 250); return () => clearTimeout(t); }, [fetchDeals]);
 
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) loadMore();
+    }, { threshold: 0.1 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [loadMore]);
+
   const saveCell = useCallback(async (deal: Deal, fieldKey: string, value: unknown) => {
-    setData(prev => {
-      if (!prev) return prev;
-      return { ...prev, deals: prev.deals.map(d => d.id === deal.id ? { ...d, field_values: { ...(d.field_values ?? {}), [fieldKey]: value } } : d) };
-    });
+    setDeals(prev => prev.map(d =>
+      d.id === deal.id ? { ...d, field_values: { ...(d.field_values ?? {}), [fieldKey]: value } } : d
+    ));
     await fetch(`/api/deals/${deal.id}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ field_values: { ...(deal.field_values ?? {}), [fieldKey]: value } }),
@@ -490,6 +530,32 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
   }, []);
 
   const handleDelete = async (id: string) => { await fetch(`/api/deals/${id}`, { method: "DELETE" }); fetchDeals(); };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      await fetch("/api/deals/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
+      fetchDeals();
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === deals.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(deals.map(d => d.id)));
+  };
 
   const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -503,7 +569,7 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
     return arr;
   })();
 
-  const totalCols = columns.length + 4; // contact + columns + owner + created + actions
+  const totalCols = columns.length + 4 + (isSuperAdmin ? 1 : 0); // contact + columns + owner + created + actions (+ checkbox for super_admin)
   const isReady = !fieldsLoading;
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -526,7 +592,7 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
         <div className="flex items-center gap-3">
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#68717A]" />
-            <input type="text" placeholder="Search deals..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+            <input type="text" placeholder="Search deals..." value={search} onChange={e => { setSearch(e.target.value); }}
               className="pl-9 pr-3 h-8 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] placeholder:text-[#68717A] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all w-64" />
           </div>
 
@@ -549,11 +615,25 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
           </button>
 
           <div className="flex-1" />
-          {data && <span className="text-sm text-[#68717A]">{data.total} {data.total === 1 ? "deal" : "deals"}</span>}
+          {total > 0 && <span className="text-sm text-[#68717A]">{total} {total === 1 ? "deal" : "deals"}</span>}
           <button onClick={() => setModalOpen(true)} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-sm font-medium text-white hover:brightness-110 active:scale-95 transition-all" style={{ background: "#038153" }}>
             <Plus size={14} strokeWidth={2.5} /> Add Deal
           </button>
         </div>
+
+        {isSuperAdmin && selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[#FFF0F1] border border-[#FFC9CC]">
+            <span className="text-sm font-medium text-[#CC3340]">
+              {selectedIds.size} {selectedIds.size === 1 ? "deal" : "deals"} selected
+            </span>
+            <div className="flex-1" />
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-[#68717A] hover:text-[#2F3941] transition-colors">Deselect all</button>
+            <button onClick={() => setConfirmBulkDelete(true)}
+              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white bg-[#CC3340] hover:brightness-110 transition-all">
+              <Trash2 size={12} /> Delete selected
+            </button>
+          </div>
+        )}
 
         {/* Active filter chips */}
         {filters.length > 0 && (
@@ -580,6 +660,7 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
           <div className="overflow-x-auto">
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
+                {isSuperAdmin && <col style={{ width: 40 }} />}
                 <col style={{ width: colWidths["__contact__"] ?? 200 }} />
                 {columns.map(c => c.type === "source"
                   ? <col key="__source__" style={{ width: colWidths["__source__"] ?? 180 }} />
@@ -590,6 +671,17 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
               </colgroup>
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
+                  {isSuperAdmin && (
+                    <th className="px-3 py-3" style={{ width: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={deals.length > 0 && selectedIds.size === deals.length}
+                        ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < deals.length; }}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
+                      />
+                    </th>
+                  )}
                   <th className={thClass}>Contact{sepDiv("__contact__", 200)}</th>
                   {columns.map(c => c.type === "source"
                     ? <th key="__source__" className={thClass}>Source{sepDiv("__source__", 180)}</th>
@@ -601,7 +693,7 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
               </thead>
               <tbody>
                 {(loading || fieldsLoading) && <tr><td colSpan={totalCols} className="h-40 text-center"><Loader2 size={18} className="animate-spin mx-auto text-[#68717A]" /></td></tr>}
-                {!loading && data?.deals.length === 0 && (
+                {!loading && deals.length === 0 && (
                   <tr><td colSpan={totalCols} className="h-40 text-center">
                     <div className="flex flex-col items-center gap-2 text-[#68717A]">
                       <Briefcase size={32} strokeWidth={1.2} />
@@ -610,8 +702,14 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
                     </div>
                   </td></tr>
                 )}
-                {!loading && data?.deals.map(deal => (
-                  <tr key={deal.id} onClick={() => router.push('/deals/' + deal.id)} className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer">
+                {!loading && deals.map(deal => (
+                  <tr key={deal.id} onClick={() => router.push('/deals/' + deal.id)} className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer ${selectedIds.has(deal.id) ? "bg-[#F0FBF6]" : ""}`}>
+                    {isSuperAdmin && (
+                      <td className="px-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(deal.id); }}>
+                        <input type="checkbox" checked={selectedIds.has(deal.id)} onChange={() => toggleSelect(deal.id)}
+                          className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer" />
+                      </td>
+                    )}
                     {/* Contact — clickable link to contact profile */}
                     <td className="px-4 py-2.5 font-medium">
                       <Link href={`/contacts/${deal.contact_id}`} onClick={e => e.stopPropagation()}
@@ -670,13 +768,12 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
             </table>
           </div>
 
-          {data && data.pages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-[#D8DCDE] bg-[#F8F9F9]">
-              <span className="text-xs text-[#68717A]">Page {page} of {data.pages} · {data.total} total</span>
-              <div className="flex gap-1.5">
-                <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="h-7 px-3 text-xs font-medium rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Previous</button>
-                <button disabled={page === data.pages} onClick={() => setPage(p => p + 1)} className="h-7 px-3 text-xs font-medium rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Next</button>
-              </div>
+          {!loading && (
+            <div ref={sentinelRef} className="flex items-center justify-center py-3">
+              {loadingMore && <Loader2 size={16} className="animate-spin text-[#68717A]" />}
+              {!loadingMore && !hasMore && deals.length > 0 && (
+                <span className="text-xs text-[#C2C8CC]">{deals.length} of {total} deals loaded</span>
+              )}
             </div>
           )}
         </div>
@@ -688,7 +785,7 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
           fields={fields.filter(f => f.is_filterable !== false)}
           builtinFields={DEALS_BUILTIN}
           filters={filters}
-          onChange={f => { setFilters(f); setPage(1); }}
+          onChange={f => { setFilters(f); }}
           onClose={() => setFilterAnchor(null)}
         />
       )}
@@ -697,12 +794,37 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
         onSave={async (formData) => {
           const res = await fetch("/api/deals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
           if (!res.ok) throw new Error((await res.json()).error || "Failed");
-          setPage(1); fetchDeals();
+          fetchDeals();
         }}
       />
       <DealDeleteDialog open={!!deleteDeal} deal={deleteDeal} onClose={() => setDeleteDeal(null)}
         onConfirm={() => { if (deleteDeal) handleDelete(deleteDeal.id); setDeleteDeal(null); }}
       />
+      {confirmBulkDelete && typeof window !== "undefined" && createPortal(
+        <>
+          <div className="fixed inset-0 bg-black/40 z-[9998]" onClick={() => !bulkDeleting && setConfirmBulkDelete(false)} />
+          <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-[#D8DCDE] p-6 w-full max-w-md">
+              <h2 className="text-base font-semibold text-[#2F3941] mb-2">Delete {selectedIds.size} {selectedIds.size === 1 ? "deal" : "deals"}?</h2>
+              <p className="text-sm text-[#68717A] mb-5">
+                This will permanently delete {selectedIds.size === 1 ? "this deal" : `these ${selectedIds.size} deals`}. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setConfirmBulkDelete(false)} disabled={bulkDeleting}
+                  className="h-8 px-4 rounded-md text-sm font-medium border border-[#D8DCDE] text-[#68717A] hover:bg-[#F3F4F6] disabled:opacity-50 transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                  className="h-8 px-4 rounded-md text-sm font-medium text-white bg-[#CC3340] hover:brightness-110 disabled:opacity-50 flex items-center gap-1.5 transition-all">
+                  {bulkDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  {bulkDeleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }

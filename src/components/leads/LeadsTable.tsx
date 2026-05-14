@@ -47,7 +47,7 @@ interface LeadFormData {
   user_id: string;
 }
 
-interface LeadsResponse { leads: Lead[]; total: number; page: number; pages: number; }
+interface LeadsResponse { leads: Lead[]; total: number; offset: number; hasMore: boolean; }
 
 // ── Cell display (read-only) ──────────────────────────────────────────────────
 
@@ -572,18 +572,28 @@ type Column =
   | { type: "field"; field: LeadField }
   | { type: "source" };
 
-export default function LeadsTable({ defaultUserId }: { defaultUserId: string }) {
+export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId: string; userRole?: string }) {
+  const isSuperAdmin = userRole === "super_admin";
   const source = useSourceField("lead");
-  const [data, setData] = useState<LeadsResponse | null>(null);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  // selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  // infinite scroll sentinel
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [editLead, setEditLead] = useState<LeadFormData | null>(null);
   const [deleteLead, setDeleteLead] = useState<Lead | null>(null);
   const [convertLead, setConvertLead] = useState<Lead | null>(null);
-  const [loading, setLoading] = useState(true);
 
   // Column resize
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
@@ -638,32 +648,51 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ page: String(page) });
-    if (search) params.set("search", search);
-    const res = await fetch(`/api/leads?${params}`);
-    setData(await res.json());
+    setSelectedIds(new Set());
+    const p = new URLSearchParams({ offset: "0", limit: "45" });
+    if (search) p.set("search", search);
+    const res = await fetch(`/api/leads?${p}`);
+    const json = await res.json();
+    setLeads(json.leads ?? []);
+    setTotal(json.total ?? 0);
+    setHasMore(json.hasMore ?? false);
+    setOffset((json.leads ?? []).length);
     setLoading(false);
-  }, [page, search]);
+  }, [search]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const p = new URLSearchParams({ offset: String(offset), limit: "45" });
+    if (search) p.set("search", search);
+    const res = await fetch(`/api/leads?${p}`);
+    const json = await res.json();
+    setLeads(prev => [...prev, ...(json.leads ?? [])]);
+    setTotal(json.total ?? 0);
+    setHasMore(json.hasMore ?? false);
+    setOffset(prev => prev + (json.leads ?? []).length);
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, offset, search]);
 
   useEffect(() => {
     const t = setTimeout(fetchLeads, 250);
     return () => clearTimeout(t);
   }, [fetchLeads]);
 
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) loadMore();
+    }, { threshold: 0.1 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [loadMore]);
+
   const saveCell = useCallback(async (lead: Lead, fieldKey: string, value: unknown) => {
-    // Optimistic update
-    setData(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        leads: prev.leads.map(l =>
-          l.id === lead.id
-            ? { ...l, field_values: { ...(l.field_values ?? {}), [fieldKey]: value } }
-            : l
-        ),
-      };
-    });
-    // Persist
+    setLeads(prev => prev.map(l =>
+      l.id === lead.id ? { ...l, field_values: { ...(l.field_values ?? {}), [fieldKey]: value } } : l
+    ));
     await fetch(`/api/leads/${lead.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -681,13 +710,45 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
     const url = form.id ? `/api/leads/${form.id}` : "/api/leads";
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     if (!res.ok) throw new Error((await res.json()).error || "Failed");
-    setPage(1);
     fetchLeads();
   };
 
   const handleDelete = async (id: string) => {
     await fetch(`/api/leads/${id}`, { method: "DELETE" });
     fetchLeads();
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      await fetch("/api/leads/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
+      fetchLeads();
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === leads.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(leads.map(l => l.id)));
+    }
   };
 
   const fmt = (iso: string) =>
@@ -703,7 +764,7 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
     return arr;
   })();
 
-  const totalCols = columns.length + 3;
+  const totalCols = columns.length + 3 + (isSuperAdmin ? 1 : 0);
   const isReady = !fieldsLoading;
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -733,14 +794,14 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
             type="text"
             placeholder="Search leads..."
             value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            onChange={e => setSearch(e.target.value)}
             className="pl-9 pr-3 h-8 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] placeholder:text-[#68717A] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all w-64"
           />
         </div>
         <div className="flex-1" />
-        {data && (
+        {total > 0 && (
           <span className="text-sm text-[#68717A]">
-            {data.total} {data.total === 1 ? "lead" : "leads"}
+            {total} {total === 1 ? "lead" : "leads"}
           </span>
         )}
         <button
@@ -751,6 +812,19 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
           <Plus size={14} strokeWidth={2.5} /> Add Lead
         </button>
       </div>
+      {isSuperAdmin && selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[#FFF0F1] border border-[#FFC9CC]">
+          <span className="text-sm font-medium text-[#CC3340]">
+            {selectedIds.size} {selectedIds.size === 1 ? "lead" : "leads"} selected
+          </span>
+          <div className="flex-1" />
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-[#68717A] hover:text-[#2F3941] transition-colors">Deselect all</button>
+          <button onClick={() => setConfirmBulkDelete(true)}
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white bg-[#CC3340] hover:brightness-110 transition-all">
+            <Trash2 size={12} /> Delete selected
+          </button>
+        </div>
+      )}
 
       {/* No fields state */}
       {isReady && columns.length === 0 && (
@@ -769,6 +843,7 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
           <div className="overflow-x-auto">
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
+                {isSuperAdmin && <col style={{ width: 40 }} />}
                 {columns.map(c => c.type === "source"
                   ? <col key="__source__" style={{ width: colWidths["__source__"] ?? 180 }} />
                   : <col key={c.field.id} style={{ width: colWidths[c.field.id] ?? 160 }} />)}
@@ -778,6 +853,17 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
               </colgroup>
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
+                  {isSuperAdmin && (
+                    <th className="px-3 py-3" style={{ width: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={leads.length > 0 && selectedIds.size === leads.length}
+                        ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < leads.length; }}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
+                      />
+                    </th>
+                  )}
                   {columns.map(c => {
                     if (c.type === "source") {
                       return (
@@ -822,7 +908,7 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
                 {(loading || fieldsLoading) && (
                   <tr><td colSpan={totalCols} className="h-40 text-center"><Loader2 size={18} className="animate-spin mx-auto text-[#68717A]" /></td></tr>
                 )}
-                {!loading && data?.leads.length === 0 && (
+                {!loading && leads.length === 0 && (
                   <tr>
                     <td colSpan={totalCols} className="h-40 text-center">
                       <div className="flex flex-col items-center gap-2 text-[#68717A]">
@@ -833,8 +919,14 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
                     </td>
                   </tr>
                 )}
-                {!loading && data?.leads.map(lead => (
-                  <tr key={lead.id} className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors">
+                {!loading && leads.map(lead => (
+                  <tr key={lead.id} className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors ${selectedIds.has(lead.id) ? "bg-[#F0FBF6]" : ""}`}>
+                    {isSuperAdmin && (
+                      <td className="px-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(lead.id); }}>
+                        <input type="checkbox" checked={selectedIds.has(lead.id)} onChange={() => toggleSelect(lead.id)}
+                          className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer" />
+                      </td>
+                    )}
                     {columns.map((c, fi) => {
                       if (c.type === "source") {
                         return (
@@ -887,15 +979,12 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
             </table>
           </div>
 
-          {data && data.pages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-[#D8DCDE] bg-[#F8F9F9]">
-              <span className="text-xs text-[#68717A]">Page {page} of {data.pages} · {data.total} total</span>
-              <div className="flex gap-1.5">
-                <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
-                  className="h-7 px-3 text-xs font-medium rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Previous</button>
-                <button disabled={page === data.pages} onClick={() => setPage(p => p + 1)}
-                  className="h-7 px-3 text-xs font-medium rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Next</button>
-              </div>
+          {!loading && (
+            <div ref={sentinelRef} className="flex items-center justify-center py-3">
+              {loadingMore && <Loader2 size={16} className="animate-spin text-[#68717A]" />}
+              {!loadingMore && !hasMore && leads.length > 0 && (
+                <span className="text-xs text-[#C2C8CC]">{leads.length} of {total} leads loaded</span>
+              )}
             </div>
           )}
         </div>
@@ -935,6 +1024,31 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
           fetchLeads();
         }}
       />
+      {confirmBulkDelete && typeof window !== "undefined" && createPortal(
+        <>
+          <div className="fixed inset-0 bg-black/40 z-[9998]" onClick={() => !bulkDeleting && setConfirmBulkDelete(false)} />
+          <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-[#D8DCDE] p-6 w-full max-w-md">
+              <h2 className="text-base font-semibold text-[#2F3941] mb-2">Delete {selectedIds.size} {selectedIds.size === 1 ? "lead" : "leads"}?</h2>
+              <p className="text-sm text-[#68717A] mb-5">
+                This will permanently delete {selectedIds.size === 1 ? "this lead" : `these ${selectedIds.size} leads`}. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setConfirmBulkDelete(false)} disabled={bulkDeleting}
+                  className="h-8 px-4 rounded-md text-sm font-medium border border-[#D8DCDE] text-[#68717A] hover:bg-[#F3F4F6] disabled:opacity-50 transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                  className="h-8 px-4 rounded-md text-sm font-medium text-white bg-[#CC3340] hover:brightness-110 disabled:opacity-50 flex items-center gap-1.5 transition-all">
+                  {bulkDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  {bulkDeleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }

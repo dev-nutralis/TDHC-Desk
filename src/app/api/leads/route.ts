@@ -24,9 +24,8 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const search = searchParams.get("search") || "";
-  const page = parseInt(searchParams.get("page") || "1");
-  const limit = 20;
-  const skip = (page - 1) * limit;
+  const limit = Math.min(parseInt(searchParams.get("limit") || "45"), 500);
+  const offset = parseInt(searchParams.get("offset") || "0");
 
   // For search we use raw SQL for JSONB text search; otherwise standard query
   if (search) {
@@ -40,7 +39,7 @@ export async function GET(req: NextRequest) {
         WHERE l.field_values::text ILIKE ${pattern}
         AND l.platform_id = ${platformId}
         ORDER BY l.created_at DESC
-        LIMIT ${limit} OFFSET ${skip}
+        LIMIT ${limit} OFFSET ${offset}
       `,
       prisma.$queryRaw<[{ count: bigint }]>`
         SELECT COUNT(*) FROM "Lead" WHERE field_values::text ILIKE ${pattern}
@@ -48,17 +47,17 @@ export async function GET(req: NextRequest) {
       `,
     ]);
     const total = Number(countResult[0].count);
-    return NextResponse.json({ leads, total, page, pages: Math.ceil(total / limit) });
+    return NextResponse.json({ leads, total, offset, hasMore: offset + (leads as unknown[]).length < total });
   }
 
   const where = { platform_id: platformId };
 
   const [leads, total] = await Promise.all([
-    prisma.lead.findMany({ where, include: includeSource, orderBy: { created_at: "desc" }, skip, take: limit }),
+    prisma.lead.findMany({ where, include: includeSource, orderBy: { created_at: "desc" }, skip: offset, take: limit }),
     prisma.lead.count({ where }),
   ]);
 
-  return NextResponse.json({ leads, total, page, pages: Math.ceil(total / limit) });
+  return NextResponse.json({ leads, total, offset, hasMore: offset + leads.length < total });
 }
 
 export async function POST(req: NextRequest) {

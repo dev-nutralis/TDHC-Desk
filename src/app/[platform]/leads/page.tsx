@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 import LeadsTable from "@/components/leads/LeadsTable";
 
 export default async function LeadsPage() {
-  const defaultUser = await prisma.user.findFirst();
+  const session = await getSession();
+  const defaultUser = session?.userId
+    ? await prisma.user.findUnique({ where: { id: session.userId } })
+    : await prisma.user.findFirst();
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -15,7 +19,7 @@ export default async function LeadsPage() {
 
       {/* Page content */}
       <div className="flex-1 overflow-auto p-6">
-        <LeadsTable defaultUserId={defaultUser?.id ?? ""} />
+        <LeadsTable defaultUserId={defaultUser?.id ?? ""} userRole={defaultUser?.role ?? "admin"} />
       </div>
     </div>
   );
