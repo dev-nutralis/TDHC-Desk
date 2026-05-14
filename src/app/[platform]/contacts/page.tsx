@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 import ContactsTable from "@/components/contacts/ContactsTable";
 
 export default async function ContactsPage() {
-  const user = await prisma.user.findFirst();
+  const session = await getSession();
+  const user = session?.userId
+    ? await prisma.user.findUnique({ where: { id: session.userId } })
+    : await prisma.user.findFirst();
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
