@@ -20,6 +20,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure,
     imap_host, imap_port, imap_user, imap_pass, imap_enabled,
     email_auto_contact_source_id,
+    email_auto_contact_attribute_ids,
     lead_show_source, contact_show_source, deal_show_source,
     lead_source_sort_order, contact_source_sort_order, deal_source_sort_order,
   } = body;
@@ -43,7 +44,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         imap_user:               imap_user               !== undefined ? (imap_user               || null) : undefined,
         imap_pass:               imap_pass               !== undefined ? (imap_pass               || null) : undefined,
         imap_enabled:            imap_enabled            !== undefined ? imap_enabled              : undefined,
-        email_auto_contact_source_id: email_auto_contact_source_id !== undefined ? (email_auto_contact_source_id || null) : undefined,
+        email_auto_contact_source_id:         email_auto_contact_source_id         !== undefined ? (email_auto_contact_source_id         || null) : undefined,
+        email_auto_contact_attribute_ids:     email_auto_contact_attribute_ids     !== undefined ? (email_auto_contact_attribute_ids     || null) : undefined,
         lead_show_source:    lead_show_source    !== undefined ? Boolean(lead_show_source)    : undefined,
         contact_show_source: contact_show_source !== undefined ? Boolean(contact_show_source) : undefined,
         deal_show_source:    deal_show_source    !== undefined ? Boolean(deal_show_source)    : undefined,

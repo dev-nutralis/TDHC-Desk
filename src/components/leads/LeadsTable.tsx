@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { createPortal } from "react-dom";
 import {
   Search, Plus, Loader2, UserCircle2, MoreHorizontal, Trash2,
@@ -100,6 +101,11 @@ function CellValue({ field, fv }: { field: LeadField; fv: FieldValues | null }) 
         </span>
       );
 
+    case "number": {
+      const n = Number(raw);
+      return isNaN(n) ? empty : <span className="font-mono text-[#2F3941]">{n.toLocaleString("de-DE")}</span>;
+    }
+
     case "boolean":
       return (
         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${raw === true || raw === "true" ? "bg-[#EAF7F0] text-[#038153]" : "bg-[#F3F4F6] text-[#68717A]"}`}>
@@ -110,6 +116,10 @@ function CellValue({ field, fv }: { field: LeadField; fv: FieldValues | null }) 
     case "radio":
     case "select":
     case "conditional_select": {
+      if (Array.isArray(raw)) {
+        const labels = (raw as string[]).map(v => field.options.find(o => o.value === v)?.label ?? v).filter(Boolean);
+        return labels.length > 0 ? <span className="text-[#2F3941] text-xs truncate block">{labels.join(", ")}</span> : empty;
+      }
       const opt = field.options.find(o => o.value === raw);
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#F3F4F6] text-[#2F3941]">
@@ -258,8 +268,37 @@ function DateEditor({ raw, fieldType, onSave, onClose }: { raw: unknown; fieldTy
   );
 }
 
+function MultiOptionsEditor({ field, raw, onSave }: { field: LeadField; raw: unknown; onSave: (v: unknown) => Promise<void> }) {
+  const init = Array.isArray(raw) ? new Set(raw as string[]) : raw && typeof raw === "string" ? new Set([raw]) : new Set<string>();
+  const [selected, setSelected] = useState<Set<string>>(init);
+  const [saving, setSaving] = useState(false);
+  const toggle = (val: string) => setSelected(prev => { const n = new Set(prev); n.has(val) ? n.delete(val) : n.add(val); return n; });
+  const save = async () => { setSaving(true); await onSave(selected.size > 0 ? Array.from(selected) : null); setSaving(false); };
+  return (
+    <div className="py-1" style={{ maxHeight: 280, overflowY: "auto" }}>
+      {field.options.map(opt => (
+        <label key={opt.id} className="flex items-center gap-2 px-3 py-2 hover:bg-[#F8F9F9] cursor-pointer">
+          <input type="checkbox" checked={selected.has(opt.value)} onChange={() => toggle(opt.value)}
+            className="w-3.5 h-3.5 rounded accent-[#038153]" />
+          <span className="text-sm text-[#2F3941]">{opt.label}</span>
+        </label>
+      ))}
+      <div className="px-3 pt-2 pb-1 border-t border-[#D8DCDE]">
+        <button onClick={save} disabled={saving}
+          className="w-full h-7 text-xs font-medium rounded-md text-white flex items-center justify-center gap-1 hover:brightness-110 disabled:opacity-50" style={{ background: "#038153" }}>
+          {saving ? <Loader2 size={11} className="animate-spin" /> : "Done"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function OptionsEditor({ field, raw, onSave }: { field: LeadField; raw: unknown; onSave: (v: unknown) => Promise<void> }) {
+  const cfgMultiple = useMemo(() => { try { return JSON.parse(field.config ?? "{}").multiple === true; } catch { return false; } }, [field.config]);
   const [saving, setSaving] = useState<string | null>(null);
+
+  if (cfgMultiple) return <MultiOptionsEditor field={field} raw={raw} onSave={onSave} />;
+
   const pick = async (val: string | null) => {
     setSaving(val ?? "__clear__");
     await onSave(val);
@@ -371,6 +410,29 @@ function MultiPhoneEditor({ raw, onSave, onClose }: { raw: unknown; onSave: (v: 
   );
 }
 
+function NumberEditor({ raw, onSave, onClose }: { raw: unknown; onSave: (v: unknown) => Promise<void>; onClose: () => void }) {
+  const [val, setVal] = useState(raw != null && raw !== "" ? String(raw) : "");
+  const [saving, setSaving] = useState(false);
+  const save = async () => { setSaving(true); await onSave(val !== "" ? Number(val) : null); setSaving(false); };
+  return (
+    <div className="p-3 flex flex-col gap-2.5">
+      <input
+        autoFocus type="number"
+        className="w-full h-8 px-3 text-sm rounded-md border border-[#D8DCDE] focus:border-[#038153] focus:outline-none focus:ring-2 focus:ring-[#038153]/15 font-mono"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") onClose(); }}
+      />
+      <div className="flex justify-end gap-1.5">
+        <button onClick={onClose} className="h-7 px-3 text-xs font-medium rounded-md border border-[#D8DCDE] text-[#2F3941] hover:bg-[#F3F4F6]">Cancel</button>
+        <button onClick={save} disabled={saving} className="h-7 px-3 text-xs font-medium rounded-md text-white hover:brightness-110 disabled:opacity-50 flex items-center gap-1" style={{ background: "#038153" }}>
+          {saving ? <Loader2 size={11} className="animate-spin" /> : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MultiEmailEditor({ raw, onSave, onClose }: { raw: unknown; onSave: (v: unknown) => Promise<void>; onClose: () => void }) {
   const init = Array.isArray(raw) ? (raw as { address: string; is_main?: boolean }[]) : [];
   const [emails, setEmails] = useState(init.length ? init : [{ address: "", is_main: true }]);
@@ -445,6 +507,8 @@ function EditableCell({ field, lead, onSave }: {
 
   const renderEditor = () => {
     switch (field.field_type) {
+      case "number":
+        return <NumberEditor raw={raw} onSave={save} onClose={() => setAnchor(null)} />;
       case "text":
         return <TextEditor raw={raw} onSave={save} onClose={() => setAnchor(null)} />;
       case "date":
@@ -586,8 +650,6 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  // infinite scroll sentinel
-  const sentinelRef = useRef<HTMLDivElement>(null);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -679,15 +741,22 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
     return () => clearTimeout(t);
   }, [fetchLeads]);
 
+  const rowVirtualizer = useVirtualizer({
+    count: leads.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 57,
+    overscan: 10,
+  });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const lastVirtualItem = virtualItems[virtualItems.length - 1];
+
   useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting) loadMore();
-    }, { threshold: 0.1 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [loadMore]);
+    if (!lastVirtualItem) return;
+    if (lastVirtualItem.index >= leads.length - 15 && hasMore && !loadingMore) {
+      loadMore();
+    }
+  }, [lastVirtualItem?.index, leads.length, hasMore, loadingMore, loadMore]);
 
   const saveCell = useCallback(async (lead: Lead, fieldKey: string, value: unknown) => {
     setLeads(prev => prev.map(l =>
@@ -839,8 +908,11 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
 
       {/* Table */}
       {(isReady && columns.length > 0) && (
-        <div ref={tableContainerRef} className="bg-white rounded-lg border border-[#D8DCDE] overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
+        <div
+          ref={tableContainerRef}
+          className="bg-white rounded-lg border border-[#D8DCDE] shadow-sm overflow-auto"
+          style={{ height: "calc(100vh - 210px)" }}
+        >
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
                 {isSuperAdmin && <col style={{ width: 40 }} />}
@@ -919,7 +991,14 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
                     </td>
                   </tr>
                 )}
-                {!loading && leads.map(lead => (
+                {/* Top padding */}
+                {!loading && virtualItems.length > 0 && virtualItems[0].start > 0 && (
+                  <tr><td style={{ height: virtualItems[0].start }} colSpan={totalCols} /></tr>
+                )}
+                {!loading && virtualItems.map((virtualRow) => {
+                  const lead = leads[virtualRow.index];
+                  if (!lead) return null;
+                  return (
                   <tr key={lead.id} className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors ${selectedIds.has(lead.id) ? "bg-[#F0FBF6]" : ""}`}>
                     {isSuperAdmin && (
                       <td className="px-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(lead.id); }}>
@@ -974,15 +1053,21 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
+                {/* Bottom padding */}
+                {!loading && virtualItems.length > 0 && (() => {
+                  const last = virtualItems[virtualItems.length - 1];
+                  const paddingBottom = rowVirtualizer.getTotalSize() - last.end;
+                  return paddingBottom > 0 ? <tr><td style={{ height: paddingBottom }} colSpan={totalCols} /></tr> : null;
+                })()}
               </tbody>
             </table>
-          </div>
 
-          {!loading && (
-            <div ref={sentinelRef} className="flex items-center justify-center py-3">
+          {!loading && (loadingMore || !hasMore) && leads.length > 0 && (
+            <div className="flex items-center justify-center py-3 sticky left-0">
               {loadingMore && <Loader2 size={16} className="animate-spin text-[#68717A]" />}
-              {!loadingMore && !hasMore && leads.length > 0 && (
+              {!loadingMore && !hasMore && (
                 <span className="text-xs text-[#C2C8CC]">{leads.length} of {total} leads loaded</span>
               )}
             </div>

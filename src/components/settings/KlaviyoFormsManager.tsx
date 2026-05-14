@@ -24,7 +24,12 @@ interface FieldMapping {
   contact_field_key: string;
   transform?: TransformType;
   static_value?: string;
+  static_attribute_ids?: string[];
 }
+
+interface SourceAttributeItem { id: string; label: string; sort_order: number; }
+interface SourceAttributeGroup { id: string; name: string; sort_order: number; items: SourceAttributeItem[]; }
+interface SourceWithGroups { id: string; name: string; attribute_groups: SourceAttributeGroup[]; }
 
 interface KlaviyoForm {
   id: string;
@@ -177,16 +182,18 @@ function MappingRows({
   showTransform = false,
   showStaticValue = false,
   onUpdate,
+  onUpdateAttribs,
   onRemove,
 }: {
   mappings: FieldMapping[];
   fields: ContactField[];
-  sources: { id: string; name: string }[];
+  sources: SourceWithGroups[];
   loadingFields: boolean;
   datalistId: string;
   showTransform?: boolean;
   showStaticValue?: boolean;
   onUpdate: (index: number, field: keyof FieldMapping, value: string) => void;
+  onUpdateAttribs: (index: number, attribs: string[]) => void;
   onRemove: (index: number) => void;
 }) {
   const colCount = 2 + (showTransform ? 1 : 0) + (showStaticValue ? 1 : 0);
@@ -216,7 +223,7 @@ function MappingRows({
         const isDateField = fieldType === "date";
         const isSourceField = fieldType === "builtin_source" || fieldType === "source_select";
         const hasOptions = isSelectLike && (selectedField?.options?.length ?? 0) > 0;
-        const hideKlaviyoField = showStaticValue && !isTextLike && !isSourceField;
+        const hideKlaviyoField = showStaticValue && (!isTextLike || isSourceField);
         const useNow = mapping.static_value === "$now";
 
         return (
@@ -301,21 +308,55 @@ function MappingRows({
                   )}
                 </div>
               ) : isSourceField ? (
-                <div className="relative">
-                  <select
-                    value={mapping.static_value ?? ""}
-                    onChange={(e) => onUpdate(i, "static_value", e.target.value)}
-                    className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
-                  >
-                    <option value="">— map from Klaviyo —</option>
-                    {sources.length === 0
-                      ? <option disabled>No sources defined</option>
-                      : sources.map(s => (
-                          <option key={s.id} value={s.name}>{s.name}</option>
-                        ))}
-                  </select>
-                  <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
-                </div>
+                (() => {
+                  const selSrc = sources.find(s => s.name === mapping.static_value) ?? null;
+                  // Build groupId → selectedItemId map from mapping.static_attribute_ids
+                  const attribMap: Record<string, string> = {};
+                  for (const itemId of (mapping.static_attribute_ids ?? [])) {
+                    for (const grp of selSrc?.attribute_groups ?? []) {
+                      if (grp.items.some(it => it.id === itemId)) { attribMap[grp.id] = itemId; break; }
+                    }
+                  }
+                  return (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <select
+                          value={mapping.static_value ?? ""}
+                          onChange={(e) => { onUpdate(i, "static_value", e.target.value); onUpdateAttribs(i, []); }}
+                          className="w-full h-8 pl-3 pr-7 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+                        >
+                          <option value="">— select source —</option>
+                          {sources.map(s => (
+                            <option key={s.id} value={s.name}>{s.name}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+                      </div>
+                      {selSrc && selSrc.attribute_groups.length > 0 && (
+                        <div className="pl-3 border-l-2 border-[#D8DCDE] space-y-2">
+                          {selSrc.attribute_groups.map(grp => (
+                            <div key={grp.id} className="relative">
+                              <select
+                                value={attribMap[grp.id] ?? ""}
+                                onChange={(e) => {
+                                  const newMap = { ...attribMap, [grp.id]: e.target.value };
+                                  onUpdateAttribs(i, Object.values(newMap).filter(Boolean));
+                                }}
+                                className="w-full h-8 pl-3 pr-7 text-xs rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] appearance-none transition-colors"
+                              >
+                                <option value="">— {grp.name} —</option>
+                                {grp.items.map(it => (
+                                  <option key={it.id} value={it.id}>{it.label}</option>
+                                ))}
+                              </select>
+                              <ChevronDown size={11} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
               ) : hasOptions ? (
                 <div className="relative">
                   <select
@@ -371,7 +412,7 @@ function MappingEditor({
   const [createDealNewOnly, setCreateDealNewOnly] = useState<boolean>(form.create_deal_new_only ?? false);
   const [contactFields, setContactFields] = useState<ContactField[]>([]);
   const [dealFields, setDealFields] = useState<ContactField[]>([]);
-  const [sources, setSources] = useState<{ id: string; name: string }[]>([]);
+  const [sources, setSources] = useState<SourceWithGroups[]>([]);
   const [loadingFields, setLoadingFields] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -388,7 +429,7 @@ function MappingEditor({
         ]);
         const cData = cRes.ok ? (await cRes.json()) as ContactField[] : [];
         const dData = dRes.ok ? (await dRes.json()) as ContactField[] : [];
-        const sData = sRes.ok ? (await sRes.json()) as { id: string; name: string }[] : [];
+        const sData = sRes.ok ? (await sRes.json()) as SourceWithGroups[] : [];
         // Builtins are not stored in ContactField/DealField tables — inject for mapping support
         const builtinSourceField: ContactField = {
           id: "__source__", field_key: "__source__", label: "★ Source (global field)", field_type: "builtin_source",
@@ -396,7 +437,7 @@ function MappingEditor({
         if (!cancelled) {
           setContactFields([builtinSourceField, ...cData]);
           setDealFields([builtinSourceField, ...dData]);
-          setSources(sData.map(s => ({ id: s.id, name: s.name })));
+          setSources(sData);
         }
       } catch {
         // silently fail
@@ -410,11 +451,15 @@ function MappingEditor({
 
   const updateContactRow = (i: number, field: keyof FieldMapping, value: string) =>
     setMappings((prev) => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+  const updateContactAttribs = (i: number, attribs: string[]) =>
+    setMappings((prev) => prev.map((m, idx) => idx === i ? { ...m, static_attribute_ids: attribs } : m));
   const removeContactRow = (i: number) =>
     setMappings((prev) => prev.filter((_, idx) => idx !== i));
 
   const updateDealRow = (i: number, field: keyof FieldMapping, value: string) =>
     setDealMappings((prev) => prev.map((m, idx) => idx === i ? { ...m, [field]: value } : m));
+  const updateDealAttribs = (i: number, attribs: string[]) =>
+    setDealMappings((prev) => prev.map((m, idx) => idx === i ? { ...m, static_attribute_ids: attribs } : m));
   const removeDealRow = (i: number) =>
     setDealMappings((prev) => prev.filter((_, idx) => idx !== i));
 
@@ -466,6 +511,7 @@ function MappingEditor({
           showTransform
           showStaticValue
           onUpdate={updateContactRow}
+          onUpdateAttribs={updateContactAttribs}
           onRemove={removeContactRow}
         />
         <button
@@ -516,6 +562,7 @@ function MappingEditor({
               datalistId={datalistId}
               showStaticValue
               onUpdate={updateDealRow}
+              onUpdateAttribs={updateDealAttribs}
               onRemove={removeDealRow}
             />
             <button

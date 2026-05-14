@@ -95,9 +95,12 @@ interface EmailConfig {
   imap_pass: string;
   imap_enabled: boolean;
   email_auto_contact_source_id: string;
+  email_auto_contact_attribute_ids: string;
 }
 
-interface SourceOption { id: string; name: string; }
+interface SourceAttributeItem { id: string; label: string; sort_order: number; }
+interface SourceAttributeGroup { id: string; name: string; sort_order: number; items: SourceAttributeItem[]; }
+interface SourceOption { id: string; name: string; attribute_groups: SourceAttributeGroup[]; }
 
 interface Props {
   platformId: string;
@@ -128,13 +131,41 @@ export default function EmailConfigSettingsClient({ platformId, initialConfig }:
   const [saved, setSaved]     = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [sources, setSources] = useState<SourceOption[]>([]);
+  // selectedAttribs: { [groupId]: itemId }
+  const [selectedAttribs, setSelectedAttribs] = useState<Record<string, string>>(() => {
+    try {
+      const ids: string[] = JSON.parse(initialConfig.email_auto_contact_attribute_ids || "[]");
+      // We'll rebuild the groupId→itemId map once sources load
+      return { __ids__: ids.join(",") } as Record<string, string>;
+    } catch { return {}; }
+  });
 
   useEffect(() => {
     fetch("/api/sources")
       .then(r => r.ok ? r.json() : [])
-      .then((data: { id: string; name: string }[]) => setSources(data.map(s => ({ id: s.id, name: s.name }))))
+      .then((data: SourceOption[]) => {
+        setSources(data);
+        // Rebuild selectedAttribs from saved IDs once we have source data
+        const savedIds = new Set<string>(
+          (() => { try { return JSON.parse(initialConfig.email_auto_contact_attribute_ids || "[]"); } catch { return []; } })()
+        );
+        if (savedIds.size === 0) { setSelectedAttribs({}); return; }
+        const map: Record<string, string> = {};
+        for (const src of data) {
+          for (const grp of src.attribute_groups) {
+            const match = grp.items.find(it => savedIds.has(it.id));
+            if (match) map[grp.id] = match.id;
+          }
+        }
+        setSelectedAttribs(map);
+      })
       .catch(() => setSources([]));
-  }, []);
+  }, []); // eslint-disable-line
+
+  const selectedSource = sources.find(s => s.id === cfg.email_auto_contact_source_id) ?? null;
+
+  // Compute attribute_ids array from selectedAttribs map
+  const attribIds = Object.values(selectedAttribs).filter(Boolean);
 
   // Test state
   const [testingSmtp, setTestingSmtp] = useState(false);
@@ -184,6 +215,7 @@ export default function EmailConfigSettingsClient({ platformId, initialConfig }:
           imap_pass:    cfg.imap_pass    || null,
           imap_enabled: cfg.imap_enabled,
           email_auto_contact_source_id: cfg.email_auto_contact_source_id || null,
+          email_auto_contact_attribute_ids: attribIds.length ? JSON.stringify(attribIds) : null,
         }),
       });
       if (!res.ok) throw new Error("Save failed");
@@ -381,18 +413,46 @@ export default function EmailConfigSettingsClient({ platformId, initialConfig }:
           title="Auto-create contacts from inbound email"
           description="When an email arrives from someone who isn't yet a contact, automatically create a contact assigned to the selected source. Leave as 'None' to skip unknown senders."
         />
-        <Field label="Source for auto-created contacts" hint="Sources are managed in Settings → Sources.">
-          <select
-            value={cfg.email_auto_contact_source_id}
-            onChange={e => set("email_auto_contact_source_id", e.target.value)}
-            className="w-full h-9 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] transition-all"
-          >
-            <option value="">None — skip unknown senders</option>
-            {sources.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        </Field>
+        <div className="space-y-3">
+          <Field label="Source for auto-created contacts" hint="Sources are managed in Settings → Sources.">
+            <select
+              value={cfg.email_auto_contact_source_id}
+              onChange={e => {
+                set("email_auto_contact_source_id", e.target.value);
+                setSelectedAttribs({}); // reset group selections when source changes
+              }}
+              className="w-full h-9 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] transition-all"
+            >
+              <option value="">None — skip unknown senders</option>
+              {sources.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </Field>
+
+          {/* Attribute group selections (shown only when source has groups) */}
+          {selectedSource && selectedSource.attribute_groups.length > 0 && (
+            <div className="pl-4 border-l-2 border-[#D8DCDE] space-y-3">
+              {selectedSource.attribute_groups.map(grp => (
+                <Field key={grp.id} label={grp.name}>
+                  <select
+                    value={selectedAttribs[grp.id] ?? ""}
+                    onChange={e => setSelectedAttribs(prev => ({
+                      ...prev,
+                      [grp.id]: e.target.value,
+                    }))}
+                    className="w-full h-9 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] focus:outline-none focus:border-[#038153] focus:ring-1 focus:ring-[#038153] transition-all"
+                  >
+                    <option value="">— not specified —</option>
+                    {grp.items.map(item => (
+                      <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                </Field>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Backfill names */}
         <div className="mt-5 pt-5 border-t border-[#D8DCDE]">

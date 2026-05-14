@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRouter, useParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X, CheckSquare, Upload } from "lucide-react";
@@ -39,7 +40,7 @@ interface ContactField {
   id: string;
   label: string;
   field_key: string;
-  field_type: "text" | "multi_phone" | "multi_email" | "date" | "datetime" | "boolean" | "radio" | "select" | "conditional_select" | "source_flow" | "source_select" | "serial_id";
+  field_type: "text" | "multi_phone" | "multi_email" | "date" | "datetime" | "boolean" | "radio" | "select" | "conditional_select" | "source_flow" | "source_select" | "serial_id" | "number";
   sort_order: number;
   is_required: boolean;
   is_active: boolean;
@@ -165,6 +166,12 @@ function formatFieldValue(field: ContactField, fv: FieldValues | null): React.Re
       }
     }
 
+    case "number": {
+      if (val === null || val === undefined || val === "") return empty;
+      const n = Number(val);
+      return isNaN(n) ? empty : <span className="font-mono text-[#2F3941]">{n.toLocaleString("de-DE")}</span>;
+    }
+
     case "boolean": {
       if (val === "true" || val === true) {
         return (
@@ -187,6 +194,10 @@ function formatFieldValue(field: ContactField, fv: FieldValues | null): React.Re
     case "select":
     case "conditional_select": {
       if (!val) return empty;
+      if (Array.isArray(val)) {
+        const labels = (val as string[]).map(v => field.options.find(o => o.value === v)?.label ?? v).filter(Boolean);
+        return labels.length > 0 ? <span className="max-w-[200px] truncate block">{labels.join(", ")}</span> : empty;
+      }
       const str = String(val);
       const matched = field.options.find((o) => o.value === str);
       const display = matched?.label ?? str;
@@ -436,6 +447,40 @@ function MultiEmailEditor({
   );
 }
 
+function MultiSelectEditor({
+  field,
+  initial,
+  onSave,
+}: {
+  field: ContactField;
+  initial: string[];
+  onSave: (v: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(initial));
+  const toggle = (val: string) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(val) ? next.delete(val) : next.add(val);
+    return next;
+  });
+  return (
+    <div className="space-y-0.5">
+      {field.options.map(opt => (
+        <label key={opt.id} className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-[#F3F4F6] cursor-pointer">
+          <input type="checkbox" checked={selected.has(opt.value)} onChange={() => toggle(opt.value)}
+            className="w-3.5 h-3.5 rounded accent-[#038153]" />
+          <span className="text-sm text-[#2F3941]">{opt.label}</span>
+        </label>
+      ))}
+      <div className="flex justify-end pt-2 border-t border-[#D8DCDE] mt-2">
+        <button type="button" onClick={() => onSave(Array.from(selected))}
+          className="h-7 px-3 text-xs font-medium rounded-md text-white" style={{ background: "#038153" }}>
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Avatar({ name }: { name: string }) {
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
   return (
@@ -640,9 +685,6 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
-  // Infinite scroll sentinel
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
   const COL_WIDTHS_KEY = "contacts_col_widths";
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) ?? "{}"); } catch { return {}; }
@@ -750,16 +792,22 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
     return () => clearTimeout(t);
   }, [fetchContacts]);
 
-  // Infinite scroll via IntersectionObserver
+  const rowVirtualizer = useVirtualizer({
+    count: contacts.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 68,
+    overscan: 10,
+  });
+
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const lastVirtualItem = virtualItems[virtualItems.length - 1];
+
   useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting) loadMore();
-    }, { threshold: 0.1 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [loadMore]);
+    if (!lastVirtualItem) return;
+    if (lastVirtualItem.index >= contacts.length - 15 && hasMore && !loadingMore) {
+      loadMore();
+    }
+  }, [lastVirtualItem?.index, contacts.length, hasMore, loadingMore, loadMore]);
 
   const saveField = useCallback(async (contactId: string, fieldKey: string, value: unknown) => {
     setEditingCell(null);
@@ -998,8 +1046,11 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
       )}
 
       {/* Table */}
-      <div ref={tableContainerRef} className="bg-white rounded-lg border border-[#D8DCDE] overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
+      <div
+        ref={tableContainerRef}
+        className="bg-white rounded-lg border border-[#D8DCDE] shadow-sm overflow-auto"
+        style={{ height: "calc(100vh - 210px)" }}
+      >
           <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
             <colgroup>
               {isSuperAdmin && <col style={{ width: 40 }} />}
@@ -1120,7 +1171,13 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
                   </td>
                 </tr>
               )}
-              {!loading && contacts.map((contact) => {
+              {/* Top padding row */}
+              {!loading && virtualItems.length > 0 && virtualItems[0].start > 0 && (
+                <tr><td style={{ height: virtualItems[0].start }} colSpan={totalCols} /></tr>
+              )}
+              {!loading && virtualItems.map((virtualRow) => {
+                const contact = contacts[virtualRow.index];
+                if (!contact) return null;
                 const fv = contact.field_values;
                 const isBlacklisted = fv?.blacklisted === "true" || fv?.blacklisted === true;
 
@@ -1215,6 +1272,34 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
                         );
                       }
 
+                      // number: inline number input
+                      if (field.field_type === "number") {
+                        return (
+                          <td key={field.id} className="px-4 py-4 text-sm" onClick={e => e.stopPropagation()}>
+                            {isEditing ? (
+                              <input
+                                autoFocus
+                                type="number"
+                                defaultValue={val != null ? String(val) : ""}
+                                onBlur={e => saveField(contact.id, field.field_key, e.target.value !== "" ? Number(e.target.value) : null)}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                  if (e.key === "Escape") setEditingCell(null);
+                                }}
+                                className="h-7 px-1.5 text-sm rounded border border-[#038153] ring-2 ring-[#038153]/20 outline-none w-full bg-white text-[#2F3941] font-mono"
+                              />
+                            ) : (
+                              <span
+                                className="cursor-text hover:bg-[#F3F4F6] rounded px-1 -mx-1 block truncate max-w-[160px]"
+                                onClick={() => setEditingCell({ contactId: contact.id, fieldKey: field.field_key })}
+                              >
+                                {formatFieldValue(field, fv)}
+                              </span>
+                            )}
+                          </td>
+                        );
+                      }
+
                       // text / date / datetime: inline input
                       if (field.field_type === "text" || field.field_type === "date" || field.field_type === "datetime") {
                         return (
@@ -1237,8 +1322,31 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
                         );
                       }
 
-                      // radio / select / conditional_select: inline select
+                      // radio / select / conditional_select: inline select OR multi-select popover
                       if (field.field_type === "radio" || field.field_type === "select" || field.field_type === "conditional_select") {
+                        let cfgMultiple = false;
+                        try { cfgMultiple = JSON.parse((field.config as unknown as string) ?? "{}").multiple === true; } catch { /* */ }
+
+                        if (cfgMultiple) {
+                          const isPopover = popover?.contactId === contact.id && popover.fieldKey === field.field_key;
+                          const currentVals = Array.isArray(val) ? (val as string[]) : (val ? [String(val)] : []);
+                          return (
+                            <td key={field.id} className="px-4 py-4 text-sm relative" onClick={e => e.stopPropagation()}>
+                              <span className="cursor-pointer hover:bg-[#F3F4F6] rounded px-1 -mx-1 block truncate max-w-[160px]"
+                                onClick={e => setPopover({ contactId: contact.id, fieldKey: field.field_key, fieldType: "multi_select", anchor: (e.currentTarget as HTMLElement).getBoundingClientRect() })}>
+                                {formatFieldValue(field, fv)}
+                              </span>
+                              {isPopover && (
+                                <CellPopover anchor={popover!.anchor} onClose={() => setPopover(null)}>
+                                  <p className="text-xs font-semibold text-[#68717A] uppercase tracking-wide mb-2">{field.label}</p>
+                                  <MultiSelectEditor field={field} initial={currentVals}
+                                    onSave={v => { saveField(contact.id, field.field_key, v.length > 0 ? v : null); setPopover(null); }} />
+                                </CellPopover>
+                              )}
+                            </td>
+                          );
+                        }
+
                         return (
                           <td key={field.id} className="px-4 py-4 text-sm" onClick={e => e.stopPropagation()}>
                             {isEditing ? (
@@ -1379,15 +1487,20 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
                   </tr>
                 );
               })}
+              {/* Bottom padding row */}
+              {!loading && virtualItems.length > 0 && (() => {
+                const last = virtualItems[virtualItems.length - 1];
+                const paddingBottom = rowVirtualizer.getTotalSize() - last.end;
+                return paddingBottom > 0 ? <tr><td style={{ height: paddingBottom }} colSpan={totalCols} /></tr> : null;
+              })()}
             </tbody>
           </table>
-        </div>
 
-        {/* Infinite scroll sentinel */}
-        {!loading && (
-          <div ref={sentinelRef} className="flex items-center justify-center py-3">
+        {/* Loading more / end indicator */}
+        {!loading && (loadingMore || !hasMore) && contacts.length > 0 && (
+          <div className="flex items-center justify-center py-3 sticky left-0">
             {loadingMore && <Loader2 size={16} className="animate-spin text-[#68717A]" />}
-            {!loadingMore && !hasMore && contacts.length > 0 && (
+            {!loadingMore && !hasMore && (
               <span className="text-xs text-[#C2C8CC]">{contacts.length} of {total} contacts loaded</span>
             )}
           </div>

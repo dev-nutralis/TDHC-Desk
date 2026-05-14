@@ -26,7 +26,8 @@ model Platform {
   imap_pass              String?
   imap_enabled           Boolean         @default(false)
   imap_last_sync         DateTime?
-  email_auto_contact_source_id String?
+  email_auto_contact_source_id         String?
+  email_auto_contact_attribute_ids     String?
   lead_show_source       Boolean         @default(true)
   contact_show_source    Boolean         @default(true)
   deal_show_source       Boolean         @default(false)

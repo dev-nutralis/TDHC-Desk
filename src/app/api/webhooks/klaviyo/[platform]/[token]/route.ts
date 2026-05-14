@@ -95,7 +95,7 @@ export async function POST(
     console.log("[klaviyo webhook] extracted profile:", JSON.stringify(profile));
 
     // 3. Resolve mappings
-    type Mapping = { klaviyo_field: string; contact_field_key: string; transform?: string; static_value?: string };
+    type Mapping = { klaviyo_field: string; contact_field_key: string; transform?: string; static_value?: string; static_attribute_ids?: string[] };
     const mappings = (form.mappings as Mapping[]) ?? [];
     const dealMappings = (form.deal_mappings as Mapping[]) ?? [];
 
@@ -115,6 +115,7 @@ export async function POST(
 
     let fieldValues: Record<string, unknown> = {};
     let resolvedSourceId: string | null = null;
+    let resolvedAttributeIds: string | null = null;
 
     // Email is always read directly from the Klaviyo profile — required for upsert
     const email = readProfileField(profile, "email");
@@ -124,7 +125,7 @@ export async function POST(
     }
 
     if (mappings.length > 0) {
-      for (const { klaviyo_field, contact_field_key, transform, static_value } of mappings) {
+      for (const { klaviyo_field, contact_field_key, transform, static_value, static_attribute_ids } of mappings) {
         const raw = static_value !== undefined && static_value !== ""
           ? resolveStaticValue(static_value)
           : klaviyo_field.includes("{")
@@ -149,6 +150,9 @@ export async function POST(
               select: { id: true },
             });
             resolvedSourceId = created.id;
+          }
+          if (static_attribute_ids?.length) {
+            resolvedAttributeIds = JSON.stringify(static_attribute_ids);
           }
         } else {
           fieldValues[contact_field_key] = value;
@@ -187,6 +191,7 @@ export async function POST(
         data: {
           field_values: updated as Prisma.InputJsonValue,
           ...(resolvedSourceId ? { source_id: resolvedSourceId } : {}),
+          ...(resolvedAttributeIds ? { attribute_ids: resolvedAttributeIds } : {}),
         },
       });
     } else {
@@ -202,6 +207,7 @@ export async function POST(
           platform_id,
           user_id: defaultUser.id,
           ...(resolvedSourceId ? { source_id: resolvedSourceId } : {}),
+          ...(resolvedAttributeIds ? { attribute_ids: resolvedAttributeIds } : {}),
         },
       });
     }

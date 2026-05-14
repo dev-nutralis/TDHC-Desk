@@ -48,6 +48,7 @@ export async function syncInbox(platformId: string): Promise<SyncResult> {
       imap_enabled: true,
       imap_last_sync: true,
       email_auto_contact_source_id: true,
+      email_auto_contact_attribute_ids: true,
     },
   });
 
@@ -92,6 +93,7 @@ export async function syncInbox(platformId: string): Promise<SyncResult> {
 
   const ownEmail = platform.imap_user.toLowerCase();
   const autoSourceId = platform.email_auto_contact_source_id ?? null;
+  const autoAttributeIds = platform.email_auto_contact_attribute_ids ?? null;
 
   // Default owner for auto-created contacts: prefer an admin, fall back to first user
   let defaultOwnerId: string | null = null;
@@ -175,6 +177,7 @@ export async function syncInbox(platformId: string): Promise<SyncResult> {
                 platform_id: platformId,
                 user_id: defaultOwnerId,
                 source_id: autoSourceId,
+                attribute_ids: autoAttributeIds,
                 field_values: {
                   emails: [{ address: lookupAddr, is_main: true, note: "" }],
                   ...(first_name ? { first_name } : {}),

@@ -53,9 +53,10 @@ const FIELD_TYPES = [
   { value: "datetime",           label: "Date & Time" },
   { value: "boolean",            label: "Yes / No" },
   { value: "radio",              label: "Radio" },
-  { value: "select",             label: "Dropdown (single choice)" },
+  { value: "select",             label: "Dropdown" },
   { value: "conditional_select", label: "Conditional Dropdown" },
   { value: "serial_id",          label: "ID Number (9-digit auto)" },
+  { value: "number",             label: "Number" },
 ];
 
 const OPTION_TYPES = new Set(["radio", "select", "conditional_select"]);
@@ -434,7 +435,7 @@ export default function ContactFieldModal({
     setLoading(true);
     try {
       const configObj: Record<string, unknown> = {};
-      if (form.field_type === "radio") {
+      if (form.field_type === "radio" || form.field_type === "select") {
         configObj.multiple = form.config_radio_multiple;
       }
       if ((form.field_type === "date" || form.field_type === "datetime") && form.config_use_as_created_at) {
@@ -615,8 +616,8 @@ export default function ContactFieldModal({
               </div>
             )}
 
-            {/* Radio: single / multiple */}
-            {form.field_type === "radio" && (
+            {/* Radio / Dropdown: single / multiple */}
+            {(form.field_type === "radio" || form.field_type === "select") && (
               <div className="flex flex-col gap-1.5">
                 <label className={labelCls}>Choice mode</label>
                 <div className="inline-flex rounded-md border border-[#D8DCDE] overflow-hidden w-fit">

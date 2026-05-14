@@ -16,6 +16,7 @@ export default async function SettingsEmailsPage() {
       smtp_host: true, smtp_port: true, smtp_user: true, smtp_pass: true, smtp_from: true, smtp_secure: true,
       imap_host: true, imap_port: true, imap_user: true, imap_pass: true, imap_enabled: true,
       email_auto_contact_source_id: true,
+      email_auto_contact_attribute_ids: true,
     },
   }) : null;
 
@@ -44,6 +45,7 @@ export default async function SettingsEmailsPage() {
             imap_pass:    platform.imap_pass    ?? "",
             imap_enabled: platform.imap_enabled,
             email_auto_contact_source_id: platform.email_auto_contact_source_id ?? "",
+            email_auto_contact_attribute_ids: platform.email_auto_contact_attribute_ids ?? "",
           }}
         />
       )}
