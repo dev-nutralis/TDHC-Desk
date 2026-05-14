@@ -102,9 +102,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = 20;
-    const skip = (page - 1) * limit;
+    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500);
+    const offset = parseInt(searchParams.get("offset") || "0");
 
     let filterConditions: FilterCondition[] = [];
     try {
@@ -144,13 +143,13 @@ export async function GET(req: NextRequest) {
         where,
         include: includeSource,
         orderBy: { created_at: "desc" },
-        skip,
+        skip: offset,
         take: limit,
       }),
       prisma.contact.count({ where }),
     ]);
 
-    return NextResponse.json({ contacts, total, page, pages: Math.ceil(total / limit) });
+    return NextResponse.json({ contacts, total, offset, hasMore: offset + contacts.length < total });
   } catch (err) {
     console.error("[GET /api/contacts]", err);
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });

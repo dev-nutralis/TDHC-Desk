@@ -11,7 +11,7 @@ export default async function ContactsPage() {
       </header>
 
       <div className="flex-1 overflow-auto p-6">
-        <ContactsTable defaultUserId={user?.id ?? ""} />
+        <ContactsTable defaultUserId={user?.id ?? ""} userRole={user?.role ?? "admin"} />
       </div>
     </div>
   );

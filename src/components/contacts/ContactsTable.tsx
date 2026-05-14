@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X } from "lucide-react";
+import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X, CheckSquare } from "lucide-react";
 import ContactFilterPanel, { FilterCondition, chipLabel } from "./ContactFilterPanel";
 import ContactModal from "./ContactModal";
 import ContactDeleteDialog from "./ContactDeleteDialog";
@@ -25,7 +25,7 @@ interface Contact {
   user: { id: string; name: string };
 }
 
-interface ContactsResponse { contacts: Contact[]; total: number; page: number; pages: number; }
+interface ContactsResponse { contacts: Contact[]; total: number; offset: number; hasMore: boolean; }
 
 interface ContactFieldOption {
   id: string;
@@ -603,14 +603,19 @@ type Column =
   | { type: "field"; field: ContactField }
   | { type: "source" };
 
-export default function ContactsTable({ defaultUserId }: { defaultUserId: string }) {
+export default function ContactsTable({ defaultUserId, userRole }: { defaultUserId: string; userRole?: string }) {
   const router = useRouter();
   const params = useParams();
   const platform = (params?.platform as string) ?? "";
   const source = useSourceField("contact");
-  const [data, setData] = useState<ContactsResponse | null>(null);
+  const isSuperAdmin = userRole === "super_admin";
+
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(true);
@@ -627,6 +632,15 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
   const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null);
   const filtersJson = useMemo(() => JSON.stringify(filters), [filters]);
   const [fieldsLoading, setFieldsLoading] = useState(true);
+
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+
+  // Infinite scroll sentinel
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
   const COL_WIDTHS_KEY = "contacts_col_widths";
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) ?? "{}"); } catch { return {}; }
@@ -679,53 +693,78 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
       .finally(() => setFieldsLoading(false));
   }, []);
 
+  const buildQueryParams = useCallback((currentOffset: number) => {
+    const p = new URLSearchParams({ offset: String(currentOffset), limit: "100" });
+    if (search) p.set("search", search);
+    const noValueOps = new Set(["is_empty", "not_empty", "is_true", "is_false"]);
+    const parsed: FilterCondition[] = JSON.parse(filtersJson);
+    const active = parsed.filter(f => {
+      if (noValueOps.has(f.operator)) return true;
+      if (f.operator === "range") return !!(f.value?.trim() || f.value2?.trim());
+      return f.value.trim() !== "";
+    });
+    if (active.length > 0) p.set("filters", JSON.stringify(active));
+    return p;
+  }, [search, filtersJson]);
+
   const fetchContacts = useCallback(async () => {
     setLoading(true);
+    setSelectedIds(new Set());
     try {
-      const params = new URLSearchParams({ page: String(page) });
-      if (search) params.set("search", search);
-      const noValueOps = new Set(["is_empty", "not_empty", "is_true", "is_false"]);
-      const parsed: FilterCondition[] = JSON.parse(filtersJson);
-      const active = parsed.filter(f => {
-        if (noValueOps.has(f.operator)) return true;
-        if (f.operator === "range") return !!(f.value?.trim() || f.value2?.trim());
-        return f.value.trim() !== "";
-      });
-      if (active.length > 0) params.set("filters", JSON.stringify(active));
-      const res = await fetch(`/api/contacts?${params}`);
-      if (!res.ok) {
-        console.error("Contacts API error:", res.status, await res.text());
-        setLoading(false);
-        return;
-      }
-      setData(await res.json());
+      const res = await fetch(`/api/contacts?${buildQueryParams(0)}`);
+      if (!res.ok) { console.error("Contacts API error:", res.status); return; }
+      const json = await res.json();
+      setContacts(json.contacts);
+      setTotal(json.total);
+      setHasMore(json.hasMore);
+      setOffset(json.contacts.length);
     } catch (err) {
       console.error("fetchContacts error:", err);
     } finally {
       setLoading(false);
     }
-  }, [page, search, filtersJson]);
+  }, [buildQueryParams]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/contacts?${buildQueryParams(offset)}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      setContacts(prev => [...prev, ...json.contacts]);
+      setTotal(json.total);
+      setHasMore(json.hasMore);
+      setOffset(prev => prev + json.contacts.length);
+    } catch (err) {
+      console.error("loadMore error:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, offset, buildQueryParams]);
 
   useEffect(() => {
     const t = setTimeout(fetchContacts, 250);
     return () => clearTimeout(t);
   }, [fetchContacts]);
 
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) loadMore();
+    }, { threshold: 0.1 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [loadMore]);
+
   const saveField = useCallback(async (contactId: string, fieldKey: string, value: unknown) => {
     setEditingCell(null);
-    // Optimistic local update
-    setData(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        contacts: prev.contacts.map(c => {
-          if (c.id !== contactId) return c;
-          return { ...c, field_values: { ...(c.field_values ?? {}), [fieldKey]: value } };
-        }),
-      };
-    });
-    // Persist — send full field_values so API doesn't lose other fields
-    const contact = data?.contacts.find(c => c.id === contactId);
+    setContacts(prev => prev.map(c =>
+      c.id !== contactId ? c : { ...c, field_values: { ...(c.field_values ?? {}), [fieldKey]: value } }
+    ));
+    const contact = contacts.find(c => c.id === contactId);
     if (!contact) return;
     await fetch(`/api/contacts/${contactId}`, {
       method: "PUT",
@@ -737,16 +776,13 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
         user_id: contact.user_id,
       }),
     });
-  }, [data]);
+  }, [contacts]);
 
   const saveNameFields = useCallback(async (contactId: string, firstName: string, lastName: string) => {
-    const contact = data?.contacts.find(c => c.id === contactId);
+    const contact = contacts.find(c => c.id === contactId);
     if (!contact) return;
     const newFv = { ...(contact.field_values ?? {}), first_name: firstName, last_name: lastName };
-    setData(prev => {
-      if (!prev) return prev;
-      return { ...prev, contacts: prev.contacts.map(c => c.id !== contactId ? c : { ...c, field_values: newFv }) };
-    });
+    setContacts(prev => prev.map(c => c.id !== contactId ? c : { ...c, field_values: newFv }));
     await fetch(`/api/contacts/${contactId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -757,7 +793,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
         user_id: contact.user_id,
       }),
     });
-  }, [data]);
+  }, [contacts]);
 
   const handleSave = async (formData: {
     field_values: FieldValues;
@@ -772,13 +808,45 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
       body: JSON.stringify(formData),
     });
     if (!res.ok) throw new Error((await res.json()).error || "Failed");
-    setPage(1);
     fetchContacts();
   };
 
   const handleDelete = async (id: string) => {
     await fetch(`/api/contacts/${id}`, { method: "DELETE" });
     fetchContacts();
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      await fetch("/api/contacts/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
+      fetchContacts();
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === contacts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(contacts.map(c => c.id)));
+    }
   };
 
   const fmt = (iso: string) =>
@@ -800,8 +868,8 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
     return arr;
   })();
 
-  // ID + Name + dynamic columns (fields + maybe source) + Owner + Created + Actions
-  const totalCols = columns.length + 4;
+  // Checkbox(super_admin) + Name + dynamic columns + Owner + Created + Actions
+  const totalCols = columns.length + 4 + (isSuperAdmin ? 1 : 0);
 
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -817,7 +885,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
               type="text"
               placeholder="Search contacts..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => { setSearch(e.target.value); }}
               className="pl-9 pr-3 h-8 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] placeholder:text-[#68717A] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all w-64"
             />
           </div>
@@ -841,9 +909,9 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
           </button>
 
           <div className="flex-1" />
-          {data && (
+          {total > 0 && (
             <span className="text-sm text-[#68717A]">
-              {data.total} {data.total === 1 ? "contact" : "contacts"}
+              {total} {total === 1 ? "contact" : "contacts"}
             </span>
           )}
           <button
@@ -854,6 +922,30 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
             <Plus size={14} strokeWidth={2.5} /> Add Contact
           </button>
         </div>
+
+        {/* Bulk delete bar (super admin only) */}
+        {isSuperAdmin && selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[#FFF0F1] border border-[#FFC9CC]">
+            <CheckSquare size={14} className="text-[#CC3340] shrink-0" />
+            <span className="text-sm font-medium text-[#CC3340]">
+              {selectedIds.size} {selectedIds.size === 1 ? "contact" : "contacts"} selected
+            </span>
+            <div className="flex-1" />
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs text-[#68717A] hover:text-[#2F3941] transition-colors"
+            >
+              Deselect all
+            </button>
+            <button
+              onClick={() => setConfirmBulkDelete(true)}
+              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white bg-[#CC3340] hover:brightness-110 transition-all"
+            >
+              <Trash2 size={12} />
+              Delete selected
+            </button>
+          </div>
+        )}
 
         {/* Active filter chips */}
         {filters.length > 0 && (
@@ -902,6 +994,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
         <div className="overflow-x-auto">
           <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
             <colgroup>
+              {isSuperAdmin && <col style={{ width: 40 }} />}
               <col style={{ width: colWidths["__name__"] ?? 200 }} />
               {fieldsLoading && <col style={{ width: 160 }} />}
               {!fieldsLoading && columns.length === 0 && <col style={{ width: 200 }} />}
@@ -916,6 +1009,18 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
             </colgroup>
             <thead>
               <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
+                {/* Select all checkbox (super admin only) */}
+                {isSuperAdmin && (
+                  <th className="px-3 py-3" style={{ width: 40 }}>
+                    <input
+                      type="checkbox"
+                      checked={contacts.length > 0 && selectedIds.size === contacts.length}
+                      ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < contacts.length; }}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
+                    />
+                  </th>
+                )}
                 {/* Name — always first */}
                 <th className={thClass}>
                   Name
@@ -994,7 +1099,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
                   </td>
                 </tr>
               )}
-              {!loading && data?.contacts.length === 0 && (
+              {!loading && contacts.length === 0 && (
                 <tr>
                   <td colSpan={totalCols} className="h-48 text-center">
                     <div className="flex flex-col items-center gap-2 text-[#68717A]">
@@ -1007,16 +1112,27 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
                   </td>
                 </tr>
               )}
-              {!loading && data?.contacts.map((contact) => {
+              {!loading && contacts.map((contact) => {
                 const fv = contact.field_values;
                 const isBlacklisted = fv?.blacklisted === "true" || fv?.blacklisted === true;
 
                 return (
                   <tr
                     key={contact.id}
-                    onClick={() => router.push(`/${platform}/contacts/${contact.id}`)}
-                    className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer"
+                    onClick={() => { if (selectedIds.size > 0 && isSuperAdmin) { toggleSelect(contact.id); return; } router.push(`/${platform}/contacts/${contact.id}`); }}
+                    className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer ${selectedIds.has(contact.id) ? "bg-[#F0FBF6]" : ""}`}
                   >
+                    {/* Checkbox (super admin only) */}
+                    {isSuperAdmin && (
+                      <td className="px-3 py-4" onClick={e => { e.stopPropagation(); toggleSelect(contact.id); }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(contact.id)}
+                          onChange={() => toggleSelect(contact.id)}
+                          className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
+                        />
+                      </td>
+                    )}
                     {/* Name — click navigates to detail page; pencil opens profile for editing */}
                     <td className="px-4 py-4" style={{ minWidth: 180 }}>
                       <div className="flex items-center gap-2.5 group/name">
@@ -1058,6 +1174,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
                                   headers: { "Content-Type": "application/json" },
                                   body: JSON.stringify({ source_id: sourceId, attribute_ids: null, field_values: contact.field_values, user_id: contact.user_id }),
                                 });
+                                setContacts(prev => prev.map(c => c.id !== contact.id ? c : { ...c, source_id: sourceId, source: c.source }));
                                 fetchContacts();
                               }}
                             />
@@ -1258,27 +1375,13 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
           </table>
         </div>
 
-        {data && data.pages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[#D8DCDE] bg-[#F8F9F9]">
-            <span className="text-xs text-[#68717A]">
-              Page {page} of {data.pages} · {data.total} total
-            </span>
-            <div className="flex gap-1.5">
-              <button
-                disabled={page === 1}
-                onClick={() => setPage((p) => p - 1)}
-                className="h-7 px-3 text-xs font-medium rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Previous
-              </button>
-              <button
-                disabled={page === data.pages}
-                onClick={() => setPage((p) => p + 1)}
-                className="h-7 px-3 text-xs font-medium rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] hover:bg-[#F3F4F6] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next
-              </button>
-            </div>
+        {/* Infinite scroll sentinel */}
+        {!loading && (
+          <div ref={sentinelRef} className="flex items-center justify-center py-3">
+            {loadingMore && <Loader2 size={16} className="animate-spin text-[#68717A]" />}
+            {!loadingMore && !hasMore && contacts.length > 0 && (
+              <span className="text-xs text-[#C2C8CC]">{contacts.length} of {total} contacts loaded</span>
+            )}
           </div>
         )}
       </div>
@@ -1288,13 +1391,13 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
           anchor={filterAnchor}
           fields={fields.filter(f => f.is_filterable !== false)}
           filters={filters}
-          onChange={f => { setFilters(f); setPage(1); }}
+          onChange={f => { setFilters(f); }}
           onClose={() => setFilterAnchor(null)}
         />
       )}
 
       {nameEdit && (() => {
-        const c = data?.contacts.find(ct => ct.id === nameEdit.contactId);
+        const c = contacts.find(ct => ct.id === nameEdit.contactId);
         return (
           <NameEditPopover
             anchor={nameEdit.anchor}
@@ -1326,6 +1429,39 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
           setDeleteContact(null);
         }}
       />
+
+      {/* Bulk delete confirmation dialog */}
+      {confirmBulkDelete && typeof window !== "undefined" && createPortal(
+        <>
+          <div className="fixed inset-0 bg-black/40 z-[9998]" onClick={() => !bulkDeleting && setConfirmBulkDelete(false)} />
+          <div className="fixed inset-0 flex items-center justify-center z-[9999] p-4">
+            <div className="bg-white rounded-xl shadow-2xl border border-[#D8DCDE] p-6 w-full max-w-md">
+              <h2 className="text-base font-semibold text-[#2F3941] mb-2">Delete {selectedIds.size} {selectedIds.size === 1 ? "contact" : "contacts"}?</h2>
+              <p className="text-sm text-[#68717A] mb-5">
+                This will permanently delete {selectedIds.size === 1 ? "this contact" : `these ${selectedIds.size} contacts`} along with all their deals and activities. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmBulkDelete(false)}
+                  disabled={bulkDeleting}
+                  className="h-8 px-4 rounded-md text-sm font-medium border border-[#D8DCDE] text-[#68717A] hover:bg-[#F3F4F6] disabled:opacity-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                  className="h-8 px-4 rounded-md text-sm font-medium text-white bg-[#CC3340] hover:brightness-110 disabled:opacity-50 flex items-center gap-1.5 transition-all"
+                >
+                  {bulkDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  {bulkDeleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
     </div>
   );
 }
