@@ -68,6 +68,7 @@ const KLAVIYO_SUGGESTIONS = [
   "last_name",
   "phone_number",
   "organization",
+  "properties.form_name",
   "$form_name",
   "{first_name}",
   "{last_name}",
@@ -223,7 +224,8 @@ function MappingRows({
         const isDateField = fieldType === "date";
         const isSourceField = fieldType === "builtin_source" || fieldType === "source_select";
         const hasOptions = isSelectLike && (selectedField?.options?.length ?? 0) > 0;
-        const hideKlaviyoField = showStaticValue && (!isTextLike || isSourceField);
+        // Source fields: show Klaviyo input when no static value is chosen (dynamic mode)
+        const hideKlaviyoField = showStaticValue && (!isTextLike || isSourceField) && !(isSourceField && !mapping.static_value);
         const useNow = mapping.static_value === "$now";
 
         return (
