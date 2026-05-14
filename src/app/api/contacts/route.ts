@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
-    const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500);
+    const limit = Math.min(parseInt(searchParams.get("limit") || "45"), 500);
     const offset = parseInt(searchParams.get("offset") || "0");
 
     let filterConditions: FilterCondition[] = [];
