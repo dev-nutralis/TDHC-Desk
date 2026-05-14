@@ -13,6 +13,9 @@ interface ImportRow {
   date_of_birth: string;
   additional_email: string;
   gender: string;
+  street: string;
+  city: string;
+  zip_code: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -47,6 +50,15 @@ export async function POST(req: NextRequest) {
       f.field_key === "spol" ||
       f.field_key.includes("gender") ||
       f.field_key.includes("sex")
+    )?.field_key;
+    const streetFieldKey = contactFields.find(f =>
+      f.field_key === "street" || f.field_key.includes("street") || f.field_key.includes("ulica")
+    )?.field_key;
+    const cityFieldKey = contactFields.find(f =>
+      f.field_key === "city" || f.field_key.includes("city") || f.field_key === "mesto"
+    )?.field_key;
+    const zipFieldKey = contactFields.find(f =>
+      f.field_key === "zip_code" || f.field_key === "zip" || f.field_key.includes("postal") || f.field_key.includes("zip")
     )?.field_key;
 
     const results = {
@@ -93,6 +105,11 @@ export async function POST(req: NextRequest) {
           const g = row.gender.trim().toUpperCase();
           fv[genderFieldKey] = g === "Z" ? "female" : g === "M" ? "male" : g.toLowerCase();
         }
+
+        // Street / City / Zip
+        if (streetFieldKey && row.street?.trim()) fv[streetFieldKey] = row.street.trim();
+        if (cityFieldKey   && row.city?.trim())   fv[cityFieldKey]   = row.city.trim();
+        if (zipFieldKey    && row.zip_code?.trim()) fv[zipFieldKey]  = row.zip_code.trim();
 
         // Serial ID from CSV (do not auto-generate)
         if (serialIdFieldKey && row.contact_id?.trim()) {

@@ -18,6 +18,9 @@ const CSV_COLUMN_MAP: Record<string, keyof ImportRow> = {
   "dodatni email #2":          "additional_email",
   "dodatni email":             "additional_email",
   "spol":                      "gender",
+  "street":                    "street",
+  "city":                      "city",
+  "zip code":                  "zip_code",
 };
 
 interface ImportRow {
@@ -29,6 +32,9 @@ interface ImportRow {
   date_of_birth: string;
   additional_email: string;
   gender: string;
+  street: string;
+  city: string;
+  zip_code: string;
 }
 
 type Step = "upload" | "preview" | "importing" | "done";
@@ -96,6 +102,7 @@ export default function ContactImportModal({ open, onClose, onDone, defaultUserI
           const row: ImportRow = {
             full_name: "", email: "", created_at: "", mobile: "",
             contact_id: "", date_of_birth: "", additional_email: "", gender: "",
+            street: "", city: "", zip_code: "",
           };
           for (const [col, key] of Object.entries(colMap)) {
             // created_at: prefer "datum kreacije kontakta" over evalley fallback
@@ -228,6 +235,9 @@ export default function ContactImportModal({ open, onClose, onDone, defaultUserI
                     ["Date of birth", "Datum rođenja"],
                     ["Datum kreacije kontakta", "Datum kreiranja"],
                     ["Spol", "Spol (Z / M)"],
+                    ["Street", "Ulica"],
+                    ["City", "Grad"],
+                    ["Zip Code", "Poštanski broj"],
                   ].map(([col, desc]) => (
                     <div key={col} className="flex items-center gap-1.5 text-xs text-[#2F3941]">
                       <span className="font-mono bg-white border border-[#D8DCDE] px-1.5 py-0.5 rounded text-[11px] text-[#038153]">{col}</span>
@@ -256,6 +266,7 @@ export default function ContactImportModal({ open, onClose, onDone, defaultUserI
                       {[
                         "Ime", "Prezime", "Email", "Dod. email",
                         "Mobitel", "Datum rođ.", "Spol", "Contact ID", "Kreiran",
+                        "Ulica", "Grad", "Zip",
                       ].map(h => (
                         <th key={h} className="text-left px-3 py-2.5 font-semibold text-[#68717A] whitespace-nowrap">
                           {h}
@@ -281,6 +292,9 @@ export default function ContactImportModal({ open, onClose, onDone, defaultUserI
                           <td className="px-3 py-2 text-[#2F3941]">{gender}</td>
                           <td className="px-3 py-2 font-mono text-[#68717A]">{row.contact_id || "—"}</td>
                           <td className="px-3 py-2 text-[#68717A] whitespace-nowrap">{row.created_at ? row.created_at.slice(0, 10) : "—"}</td>
+                          <td className="px-3 py-2 text-[#2F3941] max-w-[120px] truncate">{row.street || "—"}</td>
+                          <td className="px-3 py-2 text-[#2F3941] whitespace-nowrap">{row.city || "—"}</td>
+                          <td className="px-3 py-2 text-[#2F3941] whitespace-nowrap">{row.zip_code || "—"}</td>
                         </tr>
                       );
                     })}
