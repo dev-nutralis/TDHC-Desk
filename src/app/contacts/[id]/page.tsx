@@ -59,7 +59,6 @@ export default async function ContactDetailPage({
 
   // Built-in field definitions
   const builtins: Record<string, Pick<ProfileConfigItem, "label" | "field_type" | "options" | "has_notes">> = {
-    __id__: { label: "ID", field_type: "builtin_id", options: [], has_notes: false },
     __source__: { label: "Source", field_type: "builtin_source", options: [], has_notes: false },
     __added_on__: { label: "Added on", field_type: "builtin_date", options: [], has_notes: false },
   };

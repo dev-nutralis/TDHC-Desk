@@ -38,7 +38,7 @@ interface ContactField {
   id: string;
   label: string;
   field_key: string;
-  field_type: "text" | "multi_phone" | "multi_email" | "date" | "datetime" | "boolean" | "radio" | "select" | "conditional_select" | "source_flow" | "source_select";
+  field_type: "text" | "multi_phone" | "multi_email" | "date" | "datetime" | "boolean" | "radio" | "select" | "conditional_select" | "source_flow" | "source_select" | "serial_id";
   sort_order: number;
   is_required: boolean;
   is_active: boolean;
@@ -801,7 +801,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
   })();
 
   // ID + Name + dynamic columns (fields + maybe source) + Owner + Created + Actions
-  const totalCols = columns.length + 5;
+  const totalCols = columns.length + 4;
 
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -902,7 +902,6 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
         <div className="overflow-x-auto">
           <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
             <colgroup>
-              <col style={{ width: colWidths["__id__"] ?? 120 }} />
               <col style={{ width: colWidths["__name__"] ?? 200 }} />
               {fieldsLoading && <col style={{ width: 160 }} />}
               {!fieldsLoading && columns.length === 0 && <col style={{ width: 200 }} />}
@@ -917,17 +916,7 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
             </colgroup>
             <thead>
               <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
-                {/* ID — always first */}
-                <th className={thClass}>
-                  ID
-                  <div onMouseDown={e => startResize(e, "__id__", 120)}
-                    className="absolute top-0 bottom-0 w-[9px] cursor-col-resize z-10 flex items-center justify-center"
-                    style={{ right: -4 }}>
-                    <div className="w-px h-full bg-[#D8DCDE] hover:bg-[#038153] transition-colors" />
-                  </div>
-                </th>
-
-                {/* Name — always second */}
+                {/* Name — always first */}
                 <th className={thClass}>
                   Name
                   <div onMouseDown={e => startResize(e, "__name__", 200)}
@@ -1028,11 +1017,6 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
                     onClick={() => router.push(`/${platform}/contacts/${contact.id}`)}
                     className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer"
                   >
-                    {/* ID — always first */}
-                    <td className="px-4 py-4 font-mono text-xs text-[#68717A] select-all" onClick={e => e.stopPropagation()} title={contact.id}>
-                      {contact.id.slice(0, 8)}…
-                    </td>
-
                     {/* Name — click navigates to detail page; pencil opens profile for editing */}
                     <td className="px-4 py-4" style={{ minWidth: 180 }}>
                       <div className="flex items-center gap-2.5 group/name">
@@ -1091,6 +1075,17 @@ export default function ContactsTable({ defaultUserId }: { defaultUserId: string
                           <td key={field.id} className="px-4 py-4 text-sm cursor-pointer select-none"
                             onClick={e => { e.stopPropagation(); saveField(contact.id, field.field_key, val === "true" || val === true ? "false" : "true"); }}>
                             {formatFieldValue(field, fv)}
+                          </td>
+                        );
+                      }
+
+                      // serial_id: read-only, monospace number
+                      if (field.field_type === "serial_id") {
+                        return (
+                          <td key={field.id} className="px-4 py-4 text-sm" onClick={e => e.stopPropagation()}>
+                            {val
+                              ? <span className="font-mono text-[#2F3941] select-all">{String(val)}</span>
+                              : <span className="text-[#C2C8CC]">—</span>}
                           </td>
                         );
                       }

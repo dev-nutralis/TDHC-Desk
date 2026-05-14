@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getPlatformId } from "@/lib/platform";
+import { applySerialIds } from "@/lib/serial-id";
+import { Prisma } from "@prisma/client";
 
 const includeSource = {
   source: {
@@ -69,9 +71,11 @@ export async function POST(req: NextRequest) {
   if (!user_id)
     return NextResponse.json({ error: "User is required" }, { status: 400 });
 
+  const fvWithSerial = await applySerialIds("lead", platformId, (field_values ?? {}) as Record<string, unknown>);
+
   const lead = await prisma.lead.create({
     data: {
-      field_values: field_values ?? {},
+      field_values: fvWithSerial as Prisma.InputJsonValue,
       source_id: source_id || null,
       attribute_ids: attribute_ids?.length ? JSON.stringify(attribute_ids) : null,
       user_id,

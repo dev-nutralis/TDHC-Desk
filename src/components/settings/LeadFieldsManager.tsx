@@ -41,6 +41,7 @@ const FIELD_TYPE_LABELS: Record<string, string> = {
   conditional_select: "Conditional",
   source_select:      "Source",
   source_flow:        "Source Flow",
+  serial_id:          "ID Number",
 };
 
 const OPTION_TYPES = new Set(["radio", "select", "conditional_select"]);

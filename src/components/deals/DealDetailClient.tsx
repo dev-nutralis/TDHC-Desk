@@ -85,7 +85,7 @@ function fmt(iso: string) {
 function iconForField(field_key: string, field_type: string): React.ReactNode {
   if (field_type === "multi_phone" || field_key === "mobile_numbers") return <Phone size={14} />;
   if (field_type === "multi_email" || field_key === "emails") return <Mail size={14} />;
-  if (field_type === "builtin_id" || field_key === "__id__") return <Hash size={14} />;
+  if (field_type === "serial_id") return <Hash size={14} />;
   if (field_type === "builtin_date" || field_key === "__added_on__") return <Calendar size={14} />;
   if (field_type === "builtin_source" || field_type === "source_select" || field_key === "__source__") return <Globe size={14} />;
   if (field_type === "source_flow") return <Globe size={14} />;
@@ -157,10 +157,11 @@ export default function DealDetailClient({ deal: initial, fields, profileConfig 
     const empty = <span className="text-sm text-[#C2C8CC]">—</span>;
 
     switch (field_type) {
-      case "builtin_id": {
-        return (
-          <span className="text-sm font-mono text-[#68717A] select-all" title={deal.id}>{deal.id}</span>
-        );
+      case "serial_id": {
+        const v = (deal.field_values as Record<string, unknown> | null)?.[field_key];
+        return v
+          ? <span className="text-sm font-mono text-[#2F3941] select-all">{String(v)}</span>
+          : <span className="text-sm text-[#C2C8CC]">—</span>;
       }
 
       case "builtin_source": {

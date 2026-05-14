@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getPlatformId } from "@/lib/platform";
+import { backfillSerialId } from "@/lib/serial-id";
 
 const includeOptions = { options: { orderBy: { sort_order: "asc" as const } } };
 
@@ -38,6 +39,15 @@ export async function POST(req: NextRequest) {
   if (!label?.trim()) return NextResponse.json({ error: "label is required" }, { status: 400 });
   if (!field_key?.trim()) return NextResponse.json({ error: "field_key is required" }, { status: 400 });
 
+  if (field_type === "serial_id") {
+    const existing = await prisma.dealField.findFirst({
+      where: { field_type: "serial_id", platform_id: platformId },
+    });
+    if (existing) {
+      return NextResponse.json({ error: "Only one ID Number field is allowed per module" }, { status: 409 });
+    }
+  }
+
   const field = await prisma.dealField.create({
     data: {
       label: label.trim(),
@@ -55,6 +65,11 @@ export async function POST(req: NextRequest) {
     },
     include: includeOptions,
   });
+
+  if (field.field_type === "serial_id") {
+    try { await backfillSerialId("deal", field.field_key, platformId); }
+    catch (err) { console.error("[deal-fields] serial backfill error:", err); }
+  }
 
   return NextResponse.json(field, { status: 201 });
 }

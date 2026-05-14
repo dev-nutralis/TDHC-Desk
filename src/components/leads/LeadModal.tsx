@@ -33,7 +33,8 @@ interface LeadField {
     | "select"
     | "conditional_select"
     | "source_select"
-    | "source_flow";
+    | "source_flow"
+    | "serial_id";
   sort_order: number;
   is_required: boolean;
   is_active: boolean;
@@ -554,7 +555,11 @@ export default function LeadModal({ open, onClose, onSave, lead, defaultUserId }
                         {field.is_required && <span className="text-[#CC3340] ml-0.5">*</span>}
                       </label>
                     )}
-                    {field.field_type === "radio" ? (
+                    {field.field_type === "serial_id" ? (
+                      <div className={`${inputCls} bg-[#F8F9F9] text-[#68717A] font-mono`} style={{ display: "flex", alignItems: "center" }}>
+                        {(fieldValues[field.field_key] as string) || (isEdit ? "—" : "Auto-generated on save")}
+                      </div>
+                    ) : field.field_type === "radio" ? (
                       <RadioGroup
                         label={field.label}
                         value={(fieldValues[field.field_key] as string) ?? ""}

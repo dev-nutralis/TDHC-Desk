@@ -57,6 +57,9 @@ function CellValue({ field, fv }: { field: LeadField; fv: FieldValues | null }) 
   if (raw === undefined || raw === null || raw === "") return empty;
 
   switch (field.field_type) {
+    case "serial_id":
+      return <span className="font-mono text-[#2F3941] select-all">{String(raw)}</span>;
+
     case "text":
       return <span className="text-[#2F3941] truncate block" title={raw as string}>{raw as string}</span>;
 
@@ -424,6 +427,8 @@ function EditableCell({ field, lead, onSave }: {
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    // serial_id is auto-managed, not user-editable
+    if (field.field_type === "serial_id") return;
     if (field.field_type === "boolean") {
       setToggling(true);
       await onSave(field.field_key, !(raw === true || raw === "true"));
@@ -698,7 +703,7 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
     return arr;
   })();
 
-  const totalCols = columns.length + 4;
+  const totalCols = columns.length + 3;
   const isReady = !fieldsLoading;
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -764,7 +769,6 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
           <div className="overflow-x-auto">
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
-                <col style={{ width: colWidths["__id__"] ?? 120 }} />
                 {columns.map(c => c.type === "source"
                   ? <col key="__source__" style={{ width: colWidths["__source__"] ?? 180 }} />
                   : <col key={c.field.id} style={{ width: colWidths[c.field.id] ?? 160 }} />)}
@@ -774,12 +778,6 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
               </colgroup>
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
-                  <th className={thClass}>
-                    ID
-                    <div onMouseDown={e => startResize(e, "__id__", 120)} className="absolute top-0 bottom-0 w-[9px] cursor-col-resize z-10 flex items-center justify-center" style={{ right: -4 }}>
-                      <div className="w-px h-full bg-[#D8DCDE] hover:bg-[#038153] transition-colors" />
-                    </div>
-                  </th>
                   {columns.map(c => {
                     if (c.type === "source") {
                       return (
@@ -837,9 +835,6 @@ export default function LeadsTable({ defaultUserId }: { defaultUserId: string })
                 )}
                 {!loading && data?.leads.map(lead => (
                   <tr key={lead.id} className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors">
-                    <td className="px-4 py-2.5 font-mono text-xs text-[#68717A] select-all" title={lead.id}>
-                      {lead.id.slice(0, 8)}…
-                    </td>
                     {columns.map((c, fi) => {
                       if (c.type === "source") {
                         return (

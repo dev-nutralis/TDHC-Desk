@@ -7,7 +7,6 @@ import { getPlatformId } from "@/lib/platform";
 // Built-in synthetic fields (not stored in ContactField table)
 // ---------------------------------------------------------------------------
 const BUILTINS: Record<string, { label: string; field_type: string }> = {
-  __id__: { label: "ID", field_type: "builtin_id" },
   __source__: { label: "Source", field_type: "builtin_source" },
   __added_on__: { label: "Added on", field_type: "builtin_date" },
 };

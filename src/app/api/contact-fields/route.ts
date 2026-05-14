@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getPlatformId } from "@/lib/platform";
+import { backfillSerialId } from "@/lib/serial-id";
 
 const includeOptions = {
   options: { orderBy: { sort_order: "asc" as const } },
@@ -48,6 +49,16 @@ export async function POST(req: NextRequest) {
   if (!field_key?.trim())
     return NextResponse.json({ error: "field_key is required" }, { status: 400 });
 
+  // Only one serial_id field per module per platform
+  if (field_type === "serial_id") {
+    const existing = await prisma.contactField.findFirst({
+      where: { field_type: "serial_id", platform_id: platformId },
+    });
+    if (existing) {
+      return NextResponse.json({ error: "Only one ID Number field is allowed per module" }, { status: 409 });
+    }
+  }
+
   const field = await prisma.contactField.create({
     data: {
       label: label.trim(),
@@ -69,6 +80,15 @@ export async function POST(req: NextRequest) {
     },
     include: includeOptions,
   });
+
+  // Auto-backfill existing records when a new serial_id field is created
+  if (field.field_type === "serial_id") {
+    try {
+      await backfillSerialId("contact", field.field_key, platformId);
+    } catch (err) {
+      console.error("[contact-fields] serial backfill error:", err);
+    }
+  }
 
   return NextResponse.json(field, { status: 201 });
 }

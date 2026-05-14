@@ -63,6 +63,9 @@ function CellValue({ field, fv }: { field: DealField; fv: FieldValues | null }) 
   if (raw === undefined || raw === null || raw === "") return empty;
 
   switch (field.field_type) {
+    case "serial_id":
+      return <span className="font-mono text-[#2F3941] select-all">{String(raw)}</span>;
+
     case "text":
       return <span className="text-[#2F3941] truncate block" title={raw as string}>{raw as string}</span>;
 
@@ -270,6 +273,7 @@ function EditableCell({ field, deal, onSave }: { field: DealField; deal: Deal; o
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (field.field_type === "serial_id") return; // read-only
     if (field.field_type === "boolean") {
       setToggling(true);
       await onSave(field.field_key, !(raw === true || raw === "true"));
@@ -499,7 +503,7 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
     return arr;
   })();
 
-  const totalCols = columns.length + 5; // id + contact + columns + owner + created + actions
+  const totalCols = columns.length + 4; // contact + columns + owner + created + actions
   const isReady = !fieldsLoading;
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -576,7 +580,6 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
           <div className="overflow-x-auto">
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
-                <col style={{ width: colWidths["__id__"] ?? 120 }} />
                 <col style={{ width: colWidths["__contact__"] ?? 200 }} />
                 {columns.map(c => c.type === "source"
                   ? <col key="__source__" style={{ width: colWidths["__source__"] ?? 180 }} />
@@ -587,7 +590,6 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
               </colgroup>
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
-                  <th className={thClass}>ID{sepDiv("__id__", 120)}</th>
                   <th className={thClass}>Contact{sepDiv("__contact__", 200)}</th>
                   {columns.map(c => c.type === "source"
                     ? <th key="__source__" className={thClass}>Source{sepDiv("__source__", 180)}</th>
@@ -610,10 +612,6 @@ export default function DealsTable({ defaultUserId }: { defaultUserId: string })
                 )}
                 {!loading && data?.deals.map(deal => (
                   <tr key={deal.id} onClick={() => router.push('/deals/' + deal.id)} className="group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer">
-                    {/* ID — always first */}
-                    <td className="px-4 py-2.5 font-mono text-xs text-[#68717A] select-all" onClick={e => e.stopPropagation()} title={deal.id}>
-                      {deal.id.slice(0, 8)}…
-                    </td>
                     {/* Contact — clickable link to contact profile */}
                     <td className="px-4 py-2.5 font-medium">
                       <Link href={`/contacts/${deal.contact_id}`} onClick={e => e.stopPropagation()}

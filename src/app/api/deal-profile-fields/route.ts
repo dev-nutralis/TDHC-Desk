@@ -54,7 +54,6 @@ function parseHasNotes(config: string | null | undefined): boolean {
 }
 
 const BUILTINS: Record<string, { label: string; field_type: string }> = {
-  __id__: { label: "ID", field_type: "builtin_id" },
   __source__: { label: "Source", field_type: "builtin_source" },
 };
 

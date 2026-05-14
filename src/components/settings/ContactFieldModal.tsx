@@ -55,6 +55,7 @@ const FIELD_TYPES = [
   { value: "radio",              label: "Radio" },
   { value: "select",             label: "Dropdown (single choice)" },
   { value: "conditional_select", label: "Conditional Dropdown" },
+  { value: "serial_id",          label: "ID Number (9-digit auto)" },
 ];
 
 const OPTION_TYPES = new Set(["radio", "select", "conditional_select"]);

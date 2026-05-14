@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getPlatformId } from "@/lib/platform";
+import { applySerialIds } from "@/lib/serial-id";
+import { Prisma } from "@prisma/client";
 
 interface FilterCondition {
   field_key: string;
@@ -182,9 +184,12 @@ export async function POST(req: NextRequest) {
       } catch { /* skip */ }
     }
 
+    // Auto-fill any serial_id fields with the next number
+    const fvWithSerial = await applySerialIds("contact", platformId, (field_values ?? {}) as Record<string, unknown>);
+
     const contact = await prisma.contact.create({
       data: {
-        field_values: field_values ?? undefined,
+        field_values: fvWithSerial as Prisma.InputJsonValue,
         source_id: source_id || null,
         attribute_ids: Array.isArray(attribute_ids) ? JSON.stringify(attribute_ids) : (attribute_ids ?? null),
         user_id,

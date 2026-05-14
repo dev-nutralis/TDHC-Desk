@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getPlatformId } from "@/lib/platform";
+import { applySerialIds } from "@/lib/serial-id";
+import { Prisma } from "@prisma/client";
 
 interface FilterCondition {
   field_key: string;
@@ -176,10 +178,12 @@ export async function POST(req: NextRequest) {
     if (attribute_ids === undefined) resolvedAttributeIds = parent?.attribute_ids ?? null;
   }
 
+  const fvWithSerial = await applySerialIds("deal", platformId, (field_values ?? {}) as Record<string, unknown>);
+
   const deal = await prisma.deal.create({
     data: {
       contact_id,
-      field_values: field_values ?? {},
+      field_values: fvWithSerial as Prisma.InputJsonValue,
       user_id,
       platform_id: platformId,
       source_id: resolvedSourceId,

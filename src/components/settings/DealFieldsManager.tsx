@@ -21,6 +21,7 @@ const FIELD_TYPE_LABELS: Record<string, string> = {
   boolean: "Yes / No", radio: "Radio", select: "Dropdown",
   multi_phone: "Multi Phone", multi_email: "Multi Email",
   conditional_select: "Conditional", source_flow: "Source Flow",
+  serial_id: "ID Number",
 };
 
 const MODULE_LABELS: Record<string, string> = {
