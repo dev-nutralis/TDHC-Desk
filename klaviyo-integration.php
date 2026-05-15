@@ -40,9 +40,16 @@ final class Klaviyo_Elementor_Integration {
     const HTTP_TIMEOUT = 8;
     const MAX_PROPERTY_LENGTH = 5000;
 
-    // Direct CRM webhook — bypasses Klaviyo async forwarding so the
-    // correct form_name arrives immediately on every submission.
-    const CRM_WEBHOOK_URL = 'https://tdhc-desk.vercel.app/api/webhooks/klaviyo/evalley/07b9097a-507b-4e4f-bddb-4ed7169025c3';
+    // Per-form CRM webhook URLs — each Elementor form routes to its own
+    // CRM integration so the correct Klaviyo source attribute is set automatically.
+    // Keys must match the "Form Name" set in the Elementor widget settings.
+    private static function get_crm_webhook_map() {
+        return array(
+            'contact_form' => 'https://tdhc-desk.vercel.app/api/webhooks/klaviyo/evalley/19c61312-ab3d-4188-99a2-43e9dee6c733',
+            'prijava_bp'   => 'https://tdhc-desk.vercel.app/api/webhooks/klaviyo/evalley/9433a62e-6ca6-4ebf-8030-e49c6cb0288e',
+            'prijava_sp'   => 'https://tdhc-desk.vercel.app/api/webhooks/klaviyo/evalley/1661059a-7db5-4b57-9836-86f6bbe4d889',
+        );
+    }
 
     private static function get_form_map() {
         return array(
@@ -125,10 +132,10 @@ final class Klaviyo_Elementor_Integration {
             }
         }
 
-        // Step 3: send directly to CRM webhook.
-        // This guarantees the CRM receives the correct form_name immediately
-        // instead of relying on Klaviyo's async webhook forwarding.
-        $crm_result = self::send_to_crm( $built );
+        // Step 3: send directly to the per-form CRM webhook.
+        // Each form routes to a dedicated CRM integration that carries the
+        // correct Klaviyo source attribute — no async Klaviyo forwarding needed.
+        $crm_result = self::send_to_crm( $form_name, $built );
 
         $overall_ok = $profile_result['ok'] && $subscribe_ok;
 
@@ -252,13 +259,18 @@ final class Klaviyo_Elementor_Integration {
     }
 
     /**
-     * Sends profile data directly to the CRM webhook.
+     * Sends profile data directly to the per-form CRM webhook.
      *
-     * Bypasses Klaviyo's async webhook forwarding so the CRM receives
-     * the correct form_name immediately on every form submission.
+     * Each Elementor form maps to a dedicated CRM integration that carries
+     * the correct Klaviyo source + attribute automatically.
      */
-    private static function send_to_crm( array $built ) {
-        $url = self::CRM_WEBHOOK_URL;
+    private static function send_to_crm( $form_name, array $built ) {
+        $map = self::get_crm_webhook_map();
+        $url = isset( $map[ $form_name ] ) ? $map[ $form_name ] : '';
+
+        if ( '' === $url ) {
+            return array( 'ok' => false, 'message' => 'No CRM webhook URL for form: ' . $form_name );
+        }
 
         $payload = array(
             'data' => array(
