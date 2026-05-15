@@ -34,6 +34,8 @@ model Platform {
   lead_source_sort_order    Int          @default(0)
   contact_source_sort_order Int          @default(0)
   deal_source_sort_order    Int          @default(0)
+  klaviyo_api_key        String?
+  klaviyo_pipeline_lists Json?
   created_at             DateTime        @default(now())
   updated_at             DateTime        @updatedAt
   users                  UserPlatform[]
@@ -143,9 +145,11 @@ model ContactFieldOption {
 }
 
 model Contact {
-  id            String            @id @default(uuid())
-  field_values  Json?
-  source_id     String?
+  id                  String            @id @default(uuid())
+  field_values        Json?
+  klaviyo_profile_id  String?
+  klaviyo_synced_at   DateTime?
+  source_id           String?
   source        Source?           @relation(fields: [source_id], references: [id])
   attribute_ids String?
   user_id       String
