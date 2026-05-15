@@ -146,7 +146,7 @@ async function main() {
         }
 
         await prisma.contact.create({
-          data: { field_values: fv, user_id: userId, platform_id: platformId, ...(createdAt ? { created_at: createdAt } : {}) },
+          data: { field_values: fv as import("@prisma/client").Prisma.InputJsonValue, user_id: userId, platform_id: platformId, ...(createdAt ? { created_at: createdAt } : {}) },
         });
         created++;
       } catch (e) {
