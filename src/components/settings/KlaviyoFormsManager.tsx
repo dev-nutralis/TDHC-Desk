@@ -199,10 +199,10 @@ function MappingRows({
 }) {
   const colCount = 2 + (showTransform ? 1 : 0) + (showStaticValue ? 1 : 0);
   const cols = colCount === 4
-    ? "grid-cols-[1fr_auto_1fr_1fr_auto]"
+    ? "grid-cols-[1fr_auto_1fr_1fr_1fr_auto]"
     : colCount === 3
-      ? "grid-cols-[1fr_auto_1fr_auto]"
-      : "grid-cols-[1fr_auto_1fr_1fr_1fr_auto]";
+      ? "grid-cols-[1fr_auto_1fr_1fr_auto]"
+      : "grid-cols-[1fr_auto_1fr_auto]";
 
   return (
     <div className="space-y-2">
@@ -223,9 +223,18 @@ function MappingRows({
         const isSelectLike = fieldType === "select" || fieldType === "radio";
         const isDateField = fieldType === "date";
         const isSourceField = fieldType === "builtin_source" || fieldType === "source_select";
+        // Fields that always read from Klaviyo — never use a fixed value
+        const isAlwaysDynamic = isTextLike
+          || fieldType === "multi_email"
+          || fieldType === "multi_phone"
+          || fieldType === "serial_id"
+          || fieldType === "number";
         const hasOptions = isSelectLike && (selectedField?.options?.length ?? 0) > 0;
-        // Source and select/radio fields: show Klaviyo input when no static value is chosen (dynamic mode)
-        const hideKlaviyoField = showStaticValue && (!isTextLike || isSourceField) && !((isSourceField || isSelectLike) && !mapping.static_value);
+        // Hide Klaviyo input only for date (always uses date picker) or
+        // source/select when a static value is already chosen.
+        const hideKlaviyoField = showStaticValue && !isAlwaysDynamic && (
+          isDateField || ((isSourceField || isSelectLike) && !!mapping.static_value)
+        );
         const useNow = mapping.static_value === "$now";
 
         return (
@@ -373,7 +382,7 @@ function MappingRows({
                   </select>
                   <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#68717A]" />
                 </div>
-              ) : isTextLike ? null : (
+              ) : isAlwaysDynamic ? <div /> : (
                 <input
                   type={fieldType === "number" ? "number" : "text"}
                   value={mapping.static_value ?? ""}

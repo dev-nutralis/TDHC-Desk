@@ -197,6 +197,20 @@ export default function DealDetailClient({ deal: initial, fields, profileConfig 
         );
       }
 
+      case "multi_email": {
+        const emails = (val as { address: string; is_main?: boolean }[] | undefined) ?? [];
+        if (emails.length === 0) return <p className="text-sm text-[#C2C8CC]">No emails added</p>;
+        return (
+          <div className="space-y-1">
+            {emails.map((e, i) => (
+              <a key={i} href={`mailto:${e.address}`} className="block text-sm font-medium text-[#038153] hover:underline">
+                {e.address}
+              </a>
+            ))}
+          </div>
+        );
+      }
+
       case "text":
       case "textarea": {
         const str = val as string | undefined;

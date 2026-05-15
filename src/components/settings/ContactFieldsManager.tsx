@@ -44,7 +44,11 @@ const FIELD_TYPE_LABELS: Record<string, string> = {
   source_select:      "Source",
   source_flow:        "Source Flow",
   serial_id:          "ID Number",
+  builtin_date:       "Built-in Date",
+  builtin_source:     "Built-in Source",
 };
+
+const BUILTIN_TYPES = new Set(["builtin_date", "builtin_source"]);
 
 const OPTION_TYPES = new Set(["radio", "select", "conditional_select"]);
 
@@ -346,12 +350,14 @@ export default function ContactFieldsManager() {
                     <Pencil size={14} />
                   </button>
                 )}
-                <button
-                  onClick={() => setDeleteField(field)}
-                  className="w-8 h-8 rounded-md flex items-center justify-center text-[#68717A] hover:bg-[#FFF0F1] hover:text-[#CC3340] transition-colors"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {!BUILTIN_TYPES.has(field.field_type) && (
+                  <button
+                    onClick={() => setDeleteField(field)}
+                    className="w-8 h-8 rounded-md flex items-center justify-center text-[#68717A] hover:bg-[#FFF0F1] hover:text-[#CC3340] transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             </div>
           );

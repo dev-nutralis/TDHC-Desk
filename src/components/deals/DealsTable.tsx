@@ -34,7 +34,12 @@ interface Deal {
   id: string;
   contact_id: string;
   contact: ContactInfo;
-  source: { id: string; name: string } | null;
+  source: {
+    id: string;
+    name: string;
+    attribute_groups: { id: string; name: string; items: { id: string; label: string }[] }[];
+  } | null;
+  attribute_ids: string | null;
   field_values: FieldValues | null;
   user_id: string;
   user: { id: string; name: string };
@@ -134,6 +139,16 @@ function CellValue({ field, fv }: { field: DealField; fv: FieldValues | null }) 
       } catch {
         return <span className="text-xs text-[#2F3941]">{sfVal.source}</span>;
       }
+    }
+
+    case "multi_email": {
+      const emails = raw as { address: string }[];
+      return <span className="text-[#2F3941] text-xs truncate block">{emails.map(e => e.address).join(", ")}</span>;
+    }
+
+    case "multi_phone": {
+      const phones = raw as { number: string }[];
+      return <span className="text-[#2F3941] text-xs truncate block">{phones.map(p => p.number).join(", ")}</span>;
     }
 
     default:
@@ -553,7 +568,10 @@ export default function DealsTable({ defaultUserId, userRole }: { defaultUserId:
     setLoadingMore(true);
     const res = await fetch(`/api/deals?${buildParams(offset)}`);
     const json = await res.json();
-    setDeals(prev => [...prev, ...(json.deals ?? [])]);
+    setDeals(prev => {
+      const seen = new Set(prev.map(d => d.id));
+      return [...prev, ...(json.deals ?? []).filter((d: Deal) => !seen.has(d.id))];
+    });
     setTotal(json.total ?? 0);
     setHasMore(json.hasMore ?? false);
     setOffset(prev => prev + (json.deals ?? []).length);
@@ -791,15 +809,20 @@ export default function DealsTable({ defaultUserId, userRole }: { defaultUserId:
                     {/* Dynamic columns — fields + optional Source */}
                     {columns.map(c => {
                       if (c.type === "source") {
+                        const attrIds: string[] = (() => { try { return JSON.parse(deal.attribute_ids ?? "[]"); } catch { return []; } })();
+                        const allItems = deal.source?.attribute_groups?.flatMap(g => g.items) ?? [];
+                        const attrLabels = attrIds.map(id => allItems.find(it => it.id === id)?.label).filter(Boolean) as string[];
                         return (
                           <td key="__source__" className="px-4 py-2.5 text-sm" onClick={e => e.stopPropagation()}>
                             <SourceCellPicker
                               value={deal.source}
-                              onSave={async (sourceId) => {
+                              attributeIds={attrIds}
+                              attributeLabels={attrLabels}
+                              onSave={async (sourceId, newAttrIds) => {
                                 await fetch(`/api/deals/${deal.id}`, {
                                   method: "PUT",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: null }),
+                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: newAttrIds }),
                                 });
                                 fetchDeals();
                               }}

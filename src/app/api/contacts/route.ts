@@ -120,7 +120,11 @@ export async function GET(req: NextRequest) {
     params.push(platformId);
 
     if (search) {
-      clauses.push(`field_values::text ILIKE $${params.length + 1}`);
+      clauses.push(`(
+        field_values::text ILIKE $${params.length + 1}
+        OR CONCAT(field_values->>'first_name', ' ', field_values->>'last_name') ILIKE $${params.length + 1}
+        OR CONCAT(field_values->>'last_name', ' ', field_values->>'first_name') ILIKE $${params.length + 1}
+      )`);
       params.push("%" + search + "%");
     }
 
@@ -138,7 +142,7 @@ export async function GET(req: NextRequest) {
 
     const where = { id: { in: ids }, platform_id: platformId };
 
-    const [contacts, total] = await Promise.all([
+    const [rawContacts, total] = await Promise.all([
       prisma.contact.findMany({
         where,
         include: includeSource,
@@ -148,6 +152,9 @@ export async function GET(req: NextRequest) {
       }),
       prisma.contact.count({ where }),
     ]);
+
+    const seen = new Set<string>();
+    const contacts = rawContacts.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
 
     return NextResponse.json({ contacts, total, offset, hasMore: offset + contacts.length < total });
   } catch (err) {

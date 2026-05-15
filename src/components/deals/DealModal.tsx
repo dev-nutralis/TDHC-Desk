@@ -171,6 +171,30 @@ function FieldInput({ field, value, onChange }: { field: DealField; value: unkno
       );
     }
 
+    case "multi_email": {
+      const emails = (value as { address: string }[] | undefined) ?? [];
+      return (
+        <div className="space-y-1">
+          {emails.map((e, i) => (
+            <div key={i} className={`${cls} flex items-center`}>{e.address}</div>
+          ))}
+          {emails.length === 0 && <div className={`${cls} text-[#C2C8CC]`}>—</div>}
+        </div>
+      );
+    }
+
+    case "multi_phone": {
+      const phones = (value as { number: string; note?: string }[] | undefined) ?? [];
+      return (
+        <div className="space-y-1">
+          {phones.map((p, i) => (
+            <div key={i} className={`${cls} flex items-center`}>{p.number}</div>
+          ))}
+          {phones.length === 0 && <div className={`${cls} text-[#C2C8CC]`}>—</div>}
+        </div>
+      );
+    }
+
     case "radio":
       return (
         <div className="flex flex-wrap gap-3">

@@ -592,15 +592,22 @@ export default function ContactFieldModal({
             {/* Field Type */}
             <div className="flex flex-col gap-1.5">
               <label className={labelCls}>Field Type</label>
-              <select
-                value={form.field_type}
-                onChange={e => setForm(prev => ({ ...prev, field_type: e.target.value }))}
-                className={`${inputCls} w-full`}
-              >
-                {FIELD_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
+              {form.field_type.startsWith("builtin_") ? (
+                <div className={`${inputCls} w-full bg-[#F3F4F6] text-[#68717A] cursor-not-allowed`}>
+                  {form.field_type === "builtin_date" ? "Built-in Date" : "Built-in Source"}
+                  <span className="ml-2 text-xs">(cannot be changed)</span>
+                </div>
+              ) : (
+                <select
+                  value={form.field_type}
+                  onChange={e => setForm(prev => ({ ...prev, field_type: e.target.value }))}
+                  className={`${inputCls} w-full`}
+                >
+                  {FIELD_TYPES.map(t => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {/* Source Flow editor */}

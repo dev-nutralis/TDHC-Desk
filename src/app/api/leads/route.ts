@@ -36,13 +36,21 @@ export async function GET(req: NextRequest) {
         FROM "Lead" l
         LEFT JOIN "Source" s ON l.source_id = s.id
         LEFT JOIN "User" u ON l.user_id = u.id
-        WHERE l.field_values::text ILIKE ${pattern}
+        WHERE (
+          l.field_values::text ILIKE ${pattern}
+          OR CONCAT(l.field_values->>'first_name', ' ', l.field_values->>'last_name') ILIKE ${pattern}
+          OR CONCAT(l.field_values->>'last_name', ' ', l.field_values->>'first_name') ILIKE ${pattern}
+        )
         AND l.platform_id = ${platformId}
         ORDER BY l.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `,
       prisma.$queryRaw<[{ count: bigint }]>`
-        SELECT COUNT(*) FROM "Lead" WHERE field_values::text ILIKE ${pattern}
+        SELECT COUNT(*) FROM "Lead" WHERE (
+          field_values::text ILIKE ${pattern}
+          OR CONCAT(field_values->>'first_name', ' ', field_values->>'last_name') ILIKE ${pattern}
+          OR CONCAT(field_values->>'last_name', ' ', field_values->>'first_name') ILIKE ${pattern}
+        )
         AND platform_id = ${platformId}
       `,
     ]);

@@ -29,9 +29,20 @@ function readProfileField(
   return String(profile[klaviyoField] ?? "").trim();
 }
 
-// Resolves virtual $fields that come from server-side context, not the Klaviyo profile.
-function resolveVirtualField(klaviyoField: string, formName: string): string | null {
-  if (klaviyoField === "$form_name") return formName;
+// Resolves virtual $fields. Prefers profile.properties.form_name over the
+// CRM integration name so {$form_name} returns the actual submitted form name.
+function resolveVirtualField(
+  klaviyoField: string,
+  formName: string,
+  profile?: Record<string, unknown>
+): string | null {
+  if (klaviyoField === "$form_name") {
+    if (profile) {
+      const fromProfile = readProfileField(profile, "properties.form_name");
+      if (fromProfile) return fromProfile;
+    }
+    return formName;
+  }
   return null;
 }
 
@@ -49,7 +60,7 @@ function interpolateTemplate(
   formName: string
 ): string {
   return template.replace(/\{([^}]+)\}/g, (_, key: string) => {
-    const virtual = resolveVirtualField(key.trim(), formName);
+    const virtual = resolveVirtualField(key.trim(), formName, profile);
     if (virtual !== null) return virtual;
     return readProfileField(profile, key.trim());
   }).trim();
@@ -168,7 +179,7 @@ export async function POST(
           ? resolveStaticValue(static_value)
           : klaviyo_field.includes("{")
             ? interpolateTemplate(klaviyo_field, profile, form.name)
-            : resolveVirtualField(klaviyo_field, form.name) ?? readProfileField(profile, klaviyo_field);
+            : resolveVirtualField(klaviyo_field, form.name, profile) ?? readProfileField(profile, klaviyo_field);
         const value = applyTransform(raw, transform);
         if (!value) continue;
 
@@ -297,7 +308,7 @@ export async function POST(
             ? resolveStaticValue(static_value)
             : klaviyo_field.includes("{")
               ? interpolateTemplate(klaviyo_field, profile, form.name)
-              : resolveVirtualField(klaviyo_field, form.name) ?? readProfileField(profile, klaviyo_field);
+              : resolveVirtualField(klaviyo_field, form.name, profile) ?? readProfileField(profile, klaviyo_field);
           const value = applyTransform(raw, transform);
           if (!value) continue;
 

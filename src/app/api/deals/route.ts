@@ -81,7 +81,14 @@ function buildFilterClauses(filterConditions: FilterCondition[]): { clauses: str
 
 const includeContact = {
   contact: { select: { id: true, field_values: true } },
-  source: { select: { id: true, name: true } },
+  source: {
+    include: {
+      attribute_groups: {
+        orderBy: { sort_order: "asc" as const },
+        include: { items: { orderBy: { sort_order: "asc" as const } } },
+      },
+    },
+  },
   user: { select: { id: true, first_name: true, last_name: true } },
 };
 
@@ -111,7 +118,11 @@ export async function GET(req: NextRequest) {
     params.push(platformId);
 
     if (search) {
-      clauses.push(`field_values::text ILIKE $${params.length + 1}`);
+      clauses.push(`(
+        field_values::text ILIKE $${params.length + 1}
+        OR CONCAT(field_values->>'first_name', ' ', field_values->>'last_name') ILIKE $${params.length + 1}
+        OR CONCAT(field_values->>'last_name', ' ', field_values->>'first_name') ILIKE $${params.length + 1}
+      )`);
       params.push("%" + search + "%");
     }
 
@@ -135,7 +146,7 @@ export async function GET(req: NextRequest) {
 
     const where = ids !== null ? { ...baseWhere, id: { in: ids } } : baseWhere;
 
-    const [deals, total] = await Promise.all([
+    const [rawDeals, total] = await Promise.all([
       prisma.deal.findMany({
         where,
         include: includeContact,
@@ -145,6 +156,11 @@ export async function GET(req: NextRequest) {
       }),
       prisma.deal.count({ where }),
     ]);
+
+    // Deduplicate by id — PrismaPg adapter can produce duplicate rows
+    // when deeply nested one-to-many includes (source → attribute_groups → items) are used
+    const seen = new Set<string>();
+    const deals = rawDeals.filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true; });
 
     return NextResponse.json({ deals, total, offset, hasMore: offset + deals.length < total });
   } catch (err) {

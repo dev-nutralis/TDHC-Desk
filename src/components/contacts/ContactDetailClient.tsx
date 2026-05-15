@@ -251,10 +251,24 @@ export default function ContactDetailClient({ contact: initial, fields, profileC
       }
 
       case "source_select": {
+        const attrIds: string[] = (() => { try { return JSON.parse(contact.attribute_ids ?? "[]"); } catch { return []; } })();
+        const allItems = contact.source?.attribute_groups?.flatMap(g => g.items) ?? [];
+        const attrLabels = attrIds.map(id => allItems.find(it => it.id === id)?.label).filter(Boolean) as string[];
         return (
-          <span className="text-sm text-[#2F3941]">
-            {contact.source?.name || <span className="text-[#C2C8CC]">—</span>}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span className="text-sm text-[#2F3941]">
+              {contact.source?.name || <span className="text-[#C2C8CC]">—</span>}
+            </span>
+            {attrLabels.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {attrLabels.map((label, i) => (
+                  <span key={i} className="inline-block text-[10px] leading-tight bg-[#EAF7F0] text-[#038153] rounded px-1.5 py-0.5">
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         );
       }
 
@@ -266,10 +280,24 @@ export default function ContactDetailClient({ contact: initial, fields, profileC
       }
 
       case "builtin_source": {
+        const attrIds: string[] = (() => { try { return JSON.parse(contact.attribute_ids ?? "[]"); } catch { return []; } })();
+        const allItems = contact.source?.attribute_groups?.flatMap(g => g.items) ?? [];
+        const attrLabels = attrIds.map(id => allItems.find(it => it.id === id)?.label).filter(Boolean) as string[];
         return (
-          <span className="text-sm text-[#2F3941]">
-            {contact.source?.name || <span className="text-[#C2C8CC]">—</span>}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span className="text-sm text-[#2F3941]">
+              {contact.source?.name || <span className="text-[#C2C8CC]">—</span>}
+            </span>
+            {attrLabels.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {attrLabels.map((label, i) => (
+                  <span key={i} className="inline-block text-[10px] leading-tight bg-[#EAF7F0] text-[#038153] rounded px-1.5 py-0.5">
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         );
       }
 

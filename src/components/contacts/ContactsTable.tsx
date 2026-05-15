@@ -20,7 +20,11 @@ interface Contact {
   id: string;
   field_values: FieldValues | null;
   source_id: string | null;
-  source: { id: string; name: string } | null;
+  source: {
+    id: string;
+    name: string;
+    attribute_groups: { id: string; name: string; items: { id: string; label: string }[] }[];
+  } | null;
   attribute_ids: string | null;
   user_id: string;
   created_at: string;
@@ -1229,17 +1233,21 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
                     {/* Dynamic columns — fields + optional Source */}
                     {columns.map((c) => {
                       if (c.type === "source") {
+                        const attrIds: string[] = (() => { try { return JSON.parse(contact.attribute_ids ?? "[]"); } catch { return []; } })();
+                        const allItems = contact.source?.attribute_groups?.flatMap(g => g.items) ?? [];
+                        const attrLabels = attrIds.map(id => allItems.find(it => it.id === id)?.label).filter(Boolean) as string[];
                         return (
                           <td key="__source__" className="px-4 py-4 text-sm" onClick={e => e.stopPropagation()}>
                             <SourceCellPicker
                               value={contact.source}
-                              onSave={async (sourceId) => {
+                              attributeIds={attrIds}
+                              attributeLabels={attrLabels}
+                              onSave={async (sourceId, newAttrIds) => {
                                 await fetch(`/api/contacts/${contact.id}`, {
                                   method: "PUT",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: null, field_values: contact.field_values, user_id: contact.user_id }),
+                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: newAttrIds, field_values: contact.field_values, user_id: contact.user_id }),
                                 });
-                                setContacts(prev => prev.map(c => c.id !== contact.id ? c : { ...c, source_id: sourceId, source: c.source }));
                                 fetchContacts();
                               }}
                             />

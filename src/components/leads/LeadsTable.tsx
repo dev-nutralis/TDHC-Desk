@@ -33,7 +33,11 @@ interface Lead {
   id: string;
   field_values: FieldValues | null;
   source_id: string | null;
-  source: { id: string; name: string } | null;
+  source: {
+    id: string;
+    name: string;
+    attribute_groups: { id: string; name: string; items: { id: string; label: string }[] }[];
+  } | null;
   attribute_ids: string | null;
   user_id: string;
   created_at: string;
@@ -729,7 +733,10 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
     if (search) p.set("search", search);
     const res = await fetch(`/api/leads?${p}`);
     const json = await res.json();
-    setLeads(prev => [...prev, ...(json.leads ?? [])]);
+    setLeads(prev => {
+      const seen = new Set(prev.map(d => d.id));
+      return [...prev, ...(json.leads ?? []).filter((d: Lead) => !seen.has(d.id))];
+    });
     setTotal(json.total ?? 0);
     setHasMore(json.hasMore ?? false);
     setOffset(prev => prev + (json.leads ?? []).length);
@@ -1008,15 +1015,20 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
                     )}
                     {columns.map((c, fi) => {
                       if (c.type === "source") {
+                        const attrIds: string[] = (() => { try { return JSON.parse(lead.attribute_ids ?? "[]"); } catch { return []; } })();
+                        const allItems = lead.source?.attribute_groups?.flatMap(g => g.items) ?? [];
+                        const attrLabels = attrIds.map(id => allItems.find(it => it.id === id)?.label).filter(Boolean) as string[];
                         return (
                           <td key="__source__" className="px-4 py-2.5 text-sm" onClick={e => e.stopPropagation()}>
                             <SourceCellPicker
                               value={lead.source}
-                              onSave={async (sourceId) => {
+                              attributeIds={attrIds}
+                              attributeLabels={attrLabels}
+                              onSave={async (sourceId, newAttrIds) => {
                                 await fetch(`/api/leads/${lead.id}`, {
                                   method: "PUT",
                                   headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: null, field_values: lead.field_values, user_id: lead.user_id }),
+                                  body: JSON.stringify({ source_id: sourceId, attribute_ids: newAttrIds, field_values: lead.field_values, user_id: lead.user_id }),
                                 });
                                 fetchLeads();
                               }}

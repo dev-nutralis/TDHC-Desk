@@ -57,12 +57,6 @@ export default async function ContactDetailPage({
 
   if (!contact) notFound();
 
-  // Built-in field definitions
-  const builtins: Record<string, Pick<ProfileConfigItem, "label" | "field_type" | "options" | "has_notes">> = {
-    __source__: { label: "Source", field_type: "builtin_source", options: [], has_notes: false },
-    __added_on__: { label: "Added on", field_type: "builtin_date", options: [], has_notes: false },
-  };
-
   function parseHasNotes(config: string | null | undefined): boolean {
     if (!config) return false;
     try { return JSON.parse(config)?.has_notes === true; } catch { return false; }
@@ -70,6 +64,12 @@ export default async function ContactDetailPage({
 
   // Build a lookup map from ContactField records
   const fieldByKey = Object.fromEntries(fields.map((f) => [f.field_key, f]));
+
+  // Built-in field definitions — label overrideable from ContactField DB record
+  const builtins: Record<string, Pick<ProfileConfigItem, "label" | "field_type" | "options" | "has_notes">> = {
+    __source__: { label: fieldByKey["__source__"]?.label ?? "Source", field_type: "builtin_source", options: [], has_notes: false },
+    __added_on__: { label: fieldByKey["__added_on__"]?.label ?? "Added on", field_type: "builtin_date", options: [], has_notes: false },
+  };
 
   let profileConfig: ProfileConfigItem[];
 
