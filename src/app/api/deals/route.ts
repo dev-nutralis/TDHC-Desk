@@ -132,35 +132,22 @@ export async function GET(req: NextRequest) {
     }
     params.push(...filterParams);
 
-    // Base where (contact_id scope)
-    const baseWhere: Record<string, unknown> = { platform_id: platformId };
-    if (contactId) baseWhere.contact_id = contactId;
+    // Paginate at the ID level to avoid skip/take operating on JOIN-duplicated rows
+    const contactClause = contactId ? ` AND contact_id = '${contactId.replace(/'/g, "''")}'` : "";
+    const sql = `SELECT id FROM "Deal" WHERE ${clauses.join(" AND ")}${contactClause} ORDER BY created_at DESC`;
+    const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
+    const allIds = rows.map(r => r.id);
+    const total = allIds.length;
 
-    let ids: string[] | null = null;
-    if (clauses.length > 0) {
-      const contactClause = contactId ? ` AND contact_id = '${contactId.replace(/'/g, "''")}'` : "";
-      const sql = `SELECT id FROM "Deal" WHERE ${clauses.join(" AND ")}${contactClause}`;
-      const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
-      ids = rows.map(r => r.id);
-    }
+    const pageIds = allIds.slice(offset, offset + limit);
+    const rawDeals = await prisma.deal.findMany({
+      where: { id: { in: pageIds } },
+      include: includeContact,
+    });
 
-    const where = ids !== null ? { ...baseWhere, id: { in: ids } } : baseWhere;
-
-    const [rawDeals, total] = await Promise.all([
-      prisma.deal.findMany({
-        where,
-        include: includeContact,
-        orderBy: { created_at: "desc" },
-        skip: offset,
-        take: limit,
-      }),
-      prisma.deal.count({ where }),
-    ]);
-
-    // Deduplicate by id — PrismaPg adapter can produce duplicate rows
-    // when deeply nested one-to-many includes (source → attribute_groups → items) are used
-    const seen = new Set<string>();
-    const deals = rawDeals.filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true; });
+    // Re-sort to match ORDER BY created_at DESC (IN clause doesn't guarantee order)
+    const dealMap = new Map(rawDeals.map(d => [d.id, d]));
+    const deals = pageIds.map(id => dealMap.get(id)).filter(Boolean) as typeof rawDeals;
 
     return NextResponse.json({ deals, total, offset, hasMore: offset + deals.length < total });
   } catch (err) {

@@ -27,43 +27,39 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get("limit") || "45"), 500);
   const offset = parseInt(searchParams.get("offset") || "0");
 
-  // For search we use raw SQL for JSONB text search; otherwise standard query
+  // Paginate at the ID level to avoid skip/take operating on JOIN-duplicated rows
+  let allIds: string[];
   if (search) {
     const pattern = `%${search}%`;
-    const [leads, countResult] = await Promise.all([
-      prisma.$queryRaw<unknown[]>`
-        SELECT l.*, row_to_json(s.*) as source, row_to_json(u.*) as user
-        FROM "Lead" l
-        LEFT JOIN "Source" s ON l.source_id = s.id
-        LEFT JOIN "User" u ON l.user_id = u.id
-        WHERE (
-          l.field_values::text ILIKE ${pattern}
-          OR CONCAT(l.field_values->>'first_name', ' ', l.field_values->>'last_name') ILIKE ${pattern}
-          OR CONCAT(l.field_values->>'last_name', ' ', l.field_values->>'first_name') ILIKE ${pattern}
-        )
-        AND l.platform_id = ${platformId}
-        ORDER BY l.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `,
-      prisma.$queryRaw<[{ count: bigint }]>`
-        SELECT COUNT(*) FROM "Lead" WHERE (
-          field_values::text ILIKE ${pattern}
-          OR CONCAT(field_values->>'first_name', ' ', field_values->>'last_name') ILIKE ${pattern}
-          OR CONCAT(field_values->>'last_name', ' ', field_values->>'first_name') ILIKE ${pattern}
-        )
-        AND platform_id = ${platformId}
-      `,
-    ]);
-    const total = Number(countResult[0].count);
-    return NextResponse.json({ leads, total, offset, hasMore: offset + (leads as unknown[]).length < total });
+    const rows = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Lead"
+      WHERE (
+        field_values::text ILIKE ${pattern}
+        OR CONCAT(field_values->>'first_name', ' ', field_values->>'last_name') ILIKE ${pattern}
+        OR CONCAT(field_values->>'last_name', ' ', field_values->>'first_name') ILIKE ${pattern}
+      )
+      AND platform_id = ${platformId}
+      ORDER BY created_at DESC
+    `;
+    allIds = rows.map(r => r.id);
+  } else {
+    const rows = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Lead" WHERE platform_id = ${platformId} ORDER BY created_at DESC
+    `;
+    allIds = rows.map(r => r.id);
   }
 
-  const where = { platform_id: platformId };
+  const total = allIds.length;
+  const pageIds = allIds.slice(offset, offset + limit);
 
-  const [leads, total] = await Promise.all([
-    prisma.lead.findMany({ where, include: includeSource, orderBy: { created_at: "desc" }, skip: offset, take: limit }),
-    prisma.lead.count({ where }),
-  ]);
+  const rawLeads = await prisma.lead.findMany({
+    where: { id: { in: pageIds } },
+    include: includeSource,
+  });
+
+  // Re-sort to match ORDER BY created_at DESC
+  const leadMap = new Map(rawLeads.map(l => [l.id, l]));
+  const leads = pageIds.map(id => leadMap.get(id)).filter(Boolean) as typeof rawLeads;
 
   return NextResponse.json({ leads, total, offset, hasMore: offset + leads.length < total });
 }

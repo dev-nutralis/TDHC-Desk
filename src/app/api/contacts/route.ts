@@ -136,25 +136,20 @@ export async function GET(req: NextRequest) {
     }
     params.push(...filterParams);
 
-    const sql = `SELECT id FROM "Contact" WHERE ${clauses.join(" AND ")}`;
+    const sql = `SELECT id FROM "Contact" WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC`;
     const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
-    const ids = rows.map((r) => r.id);
+    const allIds = rows.map((r) => r.id);
+    const total = allIds.length;
 
-    const where = { id: { in: ids }, platform_id: platformId };
+    const pageIds = allIds.slice(offset, offset + limit);
+    const rawContacts = await prisma.contact.findMany({
+      where: { id: { in: pageIds } },
+      include: includeSource,
+    });
 
-    const [rawContacts, total] = await Promise.all([
-      prisma.contact.findMany({
-        where,
-        include: includeSource,
-        orderBy: { created_at: "desc" },
-        skip: offset,
-        take: limit,
-      }),
-      prisma.contact.count({ where }),
-    ]);
-
-    const seen = new Set<string>();
-    const contacts = rawContacts.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    // Re-sort to match ORDER BY created_at DESC
+    const contactMap = new Map(rawContacts.map(c => [c.id, c]));
+    const contacts = pageIds.map(id => contactMap.get(id)).filter(Boolean) as typeof rawContacts;
 
     return NextResponse.json({ contacts, total, offset, hasMore: offset + contacts.length < total });
   } catch (err) {
