@@ -566,16 +566,20 @@ export default function DealsTable({ defaultUserId, userRole }: { defaultUserId:
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    const res = await fetch(`/api/deals?${buildParams(offset)}`);
-    const json = await res.json();
-    setDeals(prev => {
-      const seen = new Set(prev.map(d => d.id));
-      return [...prev, ...(json.deals ?? []).filter((d: Deal) => !seen.has(d.id))];
-    });
-    setTotal(json.total ?? 0);
-    setHasMore(json.hasMore ?? false);
-    setOffset(prev => prev + (json.deals ?? []).length);
-    setLoadingMore(false);
+    try {
+      const res = await fetch(`/api/deals?${buildParams(offset)}`);
+      const json = await res.json();
+      if (!res.ok || json.error) return; // keep existing total/hasMore on error
+      setDeals(prev => {
+        const seen = new Set(prev.map(d => d.id));
+        return [...prev, ...(json.deals ?? []).filter((d: Deal) => !seen.has(d.id))];
+      });
+      setTotal(json.total ?? 0);
+      setHasMore(json.hasMore ?? false);
+      setOffset(prev => prev + (json.deals ?? []).length);
+    } finally {
+      setLoadingMore(false);
+    }
   }, [loadingMore, hasMore, offset, buildParams]);
 
   useEffect(() => { const t = setTimeout(fetchDeals, 250); return () => clearTimeout(t); }, [fetchDeals]);
@@ -649,7 +653,7 @@ export default function DealsTable({ defaultUserId, userRole }: { defaultUserId:
 
   const totalCols = columns.length + 4 + (isSuperAdmin ? 1 : 0); // contact + columns + owner + created + actions (+ checkbox for super_admin)
   const isReady = !fieldsLoading;
-  const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
+  const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none sticky top-0 bg-[#F8F9F9] z-10 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#D8DCDE] after:content-['']";
 
   const sepDiv = (key: string, defaultW: number) => (
     <div onMouseDown={e => startResize(e, key, defaultW)} className="absolute top-0 bottom-0 w-[9px] cursor-col-resize z-10 flex items-center justify-center" style={{ right: -4 }}>
@@ -753,7 +757,7 @@ export default function DealsTable({ defaultUserId, userRole }: { defaultUserId:
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
                   {isSuperAdmin && (
-                    <th className="px-3 py-3" style={{ width: 40 }}>
+                    <th className="px-3 py-3 sticky top-0 bg-[#F8F9F9] z-10 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#D8DCDE] after:content-['']" style={{ width: 40 }}>
                       <input
                         type="checkbox"
                         checked={deals.length > 0 && selectedIds.size === deals.length}
@@ -769,7 +773,7 @@ export default function DealsTable({ defaultUserId, userRole }: { defaultUserId:
                     : <th key={c.field.id} className={thClass}>{c.field.label}{sepDiv(c.field.id, 160)}</th>)}
                   <th className={thClass}>Owner{sepDiv("__owner__", 160)}</th>
                   <th className={thClass}>Created{sepDiv("__created__", 120)}</th>
-                  <th style={{ width: 48 }} />
+                  <th className="sticky top-0 bg-[#F8F9F9] z-10 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#D8DCDE] after:content-['']" style={{ width: 48 }} />
                 </tr>
               </thead>
               <tbody>

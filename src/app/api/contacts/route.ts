@@ -136,9 +136,15 @@ export async function GET(req: NextRequest) {
     }
     params.push(...filterParams);
 
-    const sql = `SELECT id FROM "Contact" WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC`;
-    const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
-    const allIds = rows.map((r) => r.id);
+    let allIds: string[];
+    if (!search && filterConditions.length === 0) {
+      const idRows = await prisma.contact.findMany({ where: { platform_id: platformId }, select: { id: true }, orderBy: { created_at: "desc" } });
+      allIds = idRows.map(r => r.id);
+    } else {
+      const sql = `SELECT id FROM "Contact" WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC`;
+      const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
+      allIds = rows.map((r) => r.id);
+    }
     const total = allIds.length;
 
     const pageIds = allIds.slice(offset, offset + limit);
@@ -199,6 +205,11 @@ export async function POST(req: NextRequest) {
       },
       include: includeSource,
     });
+
+    // Async Klaviyo sync — don't await, don't block response
+    import("@/lib/klaviyo-sync").then(({ syncContactToKlaviyo }) =>
+      syncContactToKlaviyo(contact.id).catch(console.error)
+    );
 
     return NextResponse.json(contact, { status: 201 });
   } catch (err) {

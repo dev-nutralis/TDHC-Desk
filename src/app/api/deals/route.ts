@@ -132,11 +132,20 @@ export async function GET(req: NextRequest) {
     }
     params.push(...filterParams);
 
-    // Paginate at the ID level to avoid skip/take operating on JOIN-duplicated rows
-    const contactClause = contactId ? ` AND contact_id = '${contactId.replace(/'/g, "''")}'` : "";
-    const sql = `SELECT id FROM "Deal" WHERE ${clauses.join(" AND ")}${contactClause} ORDER BY created_at DESC`;
-    const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
-    const allIds = rows.map(r => r.id);
+    // Paginate at the ID level to avoid skip/take operating on JOIN-duplicated rows.
+    // For the common case (no search, no filters) use pure Prisma to avoid $queryRawUnsafe
+    // connection pool issues on Neon serverless.
+    let allIds: string[];
+    if (!search && filterConditions.length === 0) {
+      const pWhere = { platform_id: platformId, ...(contactId ? { contact_id: contactId } : {}) };
+      const idRows = await prisma.deal.findMany({ where: pWhere, select: { id: true }, orderBy: { created_at: "desc" } });
+      allIds = idRows.map(r => r.id);
+    } else {
+      const contactClause = contactId ? ` AND contact_id = '${contactId.replace(/'/g, "''")}'` : "";
+      const sql = `SELECT id FROM "Deal" WHERE ${clauses.join(" AND ")}${contactClause} ORDER BY created_at DESC`;
+      const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(sql, ...params);
+      allIds = rows.map(r => r.id);
+    }
     const total = allIds.length;
 
     const pageIds = allIds.slice(offset, offset + limit);
@@ -193,6 +202,11 @@ export async function POST(req: NextRequest) {
     },
     include: includeContact,
   });
+
+  // Async Klaviyo sync via contact
+  import("@/lib/klaviyo-sync").then(({ syncContactToKlaviyo }) =>
+    syncContactToKlaviyo(deal.contact_id).catch(console.error)
+  );
 
   return NextResponse.json(deal, { status: 201 });
 }

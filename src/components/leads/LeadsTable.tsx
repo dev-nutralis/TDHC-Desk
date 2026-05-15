@@ -5,7 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { createPortal } from "react-dom";
 import {
   Search, Plus, Loader2, UserCircle2, MoreHorizontal, Trash2,
-  ArrowRightLeft, Settings, X, Check,
+  ArrowRightLeft, Settings, X, Check, RefreshCw,
 } from "lucide-react";
 import LeadModal from "./LeadModal";
 import LeadDeleteDialog from "./LeadDeleteDialog";
@@ -654,6 +654,8 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [klaviyoSyncing, setKlaviyoSyncing] = useState(false);
+  const [klaviyoSynced, setKlaviyoSynced] = useState(false);
   const [fields, setFields] = useState<LeadField[]>([]);
   const [fieldsLoading, setFieldsLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -729,18 +731,22 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    const p = new URLSearchParams({ offset: String(offset), limit: "45" });
-    if (search) p.set("search", search);
-    const res = await fetch(`/api/leads?${p}`);
-    const json = await res.json();
-    setLeads(prev => {
-      const seen = new Set(prev.map(d => d.id));
-      return [...prev, ...(json.leads ?? []).filter((d: Lead) => !seen.has(d.id))];
-    });
-    setTotal(json.total ?? 0);
-    setHasMore(json.hasMore ?? false);
-    setOffset(prev => prev + (json.leads ?? []).length);
-    setLoadingMore(false);
+    try {
+      const p = new URLSearchParams({ offset: String(offset), limit: "45" });
+      if (search) p.set("search", search);
+      const res = await fetch(`/api/leads?${p}`);
+      const json = await res.json();
+      if (!res.ok || json.error) return; // keep existing total/hasMore on error
+      setLeads(prev => {
+        const seen = new Set(prev.map(d => d.id));
+        return [...prev, ...(json.leads ?? []).filter((d: Lead) => !seen.has(d.id))];
+      });
+      setTotal(json.total ?? 0);
+      setHasMore(json.hasMore ?? false);
+      setOffset(prev => prev + (json.leads ?? []).length);
+    } finally {
+      setLoadingMore(false);
+    }
   }, [loadingMore, hasMore, offset, search]);
 
   useEffect(() => {
@@ -794,6 +800,19 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
     fetchLeads();
   };
 
+  const handleBulkKlaviyoSync = async () => {
+    if (selectedIds.size === 0 || klaviyoSyncing) return;
+    setKlaviyoSyncing(true);
+    await fetch("/api/contacts/bulk-klaviyo-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selectedIds) }),
+    });
+    setKlaviyoSyncing(false);
+    setKlaviyoSynced(true);
+    setTimeout(() => setKlaviyoSynced(false), 3000);
+  };
+
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
     setBulkDeleting(true);
@@ -840,9 +859,9 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
     return arr;
   })();
 
-  const totalCols = columns.length + 3 + (isSuperAdmin ? 1 : 0);
+  const totalCols = columns.length + 4;
   const isReady = !fieldsLoading;
-  const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
+  const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none sticky top-0 bg-[#F8F9F9] z-10 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#D8DCDE] after:content-['']";
 
   return (
     <div className="flex flex-col gap-4">
@@ -888,17 +907,28 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
           <Plus size={14} strokeWidth={2.5} /> Add Lead
         </button>
       </div>
-      {isSuperAdmin && selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[#FFF0F1] border border-[#FFC9CC]">
-          <span className="text-sm font-medium text-[#CC3340]">
-            {selectedIds.size} {selectedIds.size === 1 ? "lead" : "leads"} selected
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[#F3F4F6] border border-[#D8DCDE]">
+          <span className="text-sm font-medium text-[#2F3941]">
+            {selectedIds.size} {selectedIds.size === 1 ? "contact" : "contacts"} selected
           </span>
           <div className="flex-1" />
           <button onClick={() => setSelectedIds(new Set())} className="text-xs text-[#68717A] hover:text-[#2F3941] transition-colors">Deselect all</button>
-          <button onClick={() => setConfirmBulkDelete(true)}
-            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white bg-[#CC3340] hover:brightness-110 transition-all">
-            <Trash2 size={12} /> Delete selected
+          <button
+            onClick={handleBulkKlaviyoSync}
+            disabled={klaviyoSyncing}
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white hover:brightness-110 disabled:opacity-60 transition-all"
+            style={{ background: klaviyoSynced ? "#038153" : "#5C6AC4" }}
+          >
+            {klaviyoSyncing ? <Loader2 size={12} className="animate-spin" /> : klaviyoSynced ? <Check size={12} /> : <RefreshCw size={12} />}
+            {klaviyoSyncing ? "Syncing..." : klaviyoSynced ? "Synced!" : "Push to Klaviyo"}
           </button>
+          {isSuperAdmin && (
+            <button onClick={() => setConfirmBulkDelete(true)}
+              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white bg-[#CC3340] hover:brightness-110 transition-all">
+              <Trash2 size={12} /> Delete selected
+            </button>
+          )}
         </div>
       )}
 
@@ -922,7 +952,7 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
         >
             <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
               <colgroup>
-                {isSuperAdmin && <col style={{ width: 40 }} />}
+                <col style={{ width: 40 }} />
                 {columns.map(c => c.type === "source"
                   ? <col key="__source__" style={{ width: colWidths["__source__"] ?? 180 }} />
                   : <col key={c.field.id} style={{ width: colWidths[c.field.id] ?? 160 }} />)}
@@ -932,17 +962,15 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
               </colgroup>
               <thead>
                 <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
-                  {isSuperAdmin && (
-                    <th className="px-3 py-3" style={{ width: 40 }}>
-                      <input
-                        type="checkbox"
-                        checked={leads.length > 0 && selectedIds.size === leads.length}
-                        ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < leads.length; }}
-                        onChange={toggleSelectAll}
-                        className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
-                      />
-                    </th>
-                  )}
+                  <th className="px-3 py-3 sticky top-0 bg-[#F8F9F9] z-10 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#D8DCDE] after:content-['']" style={{ width: 40 }}>
+                    <input
+                      type="checkbox"
+                      checked={leads.length > 0 && selectedIds.size === leads.length}
+                      ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < leads.length; }}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
+                    />
+                  </th>
                   {columns.map(c => {
                     if (c.type === "source") {
                       return (
@@ -980,7 +1008,7 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
                       <div className="w-px h-full bg-[#D8DCDE] hover:bg-[#038153] transition-colors" />
                     </div>
                   </th>
-                  <th style={{ width: 48 }} />
+                  <th className="sticky top-0 bg-[#F8F9F9] z-10 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#D8DCDE] after:content-['']" style={{ width: 48 }} />
                 </tr>
               </thead>
               <tbody>
@@ -1007,12 +1035,10 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
                   if (!lead) return null;
                   return (
                   <tr key={lead.id} className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors ${selectedIds.has(lead.id) ? "bg-[#F0FBF6]" : ""}`}>
-                    {isSuperAdmin && (
-                      <td className="px-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(lead.id); }}>
-                        <input type="checkbox" checked={selectedIds.has(lead.id)} onChange={() => toggleSelect(lead.id)}
-                          className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer" />
-                      </td>
-                    )}
+                    <td className="px-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(lead.id); }}>
+                      <input type="checkbox" checked={selectedIds.has(lead.id)} onChange={() => toggleSelect(lead.id)}
+                        className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer" />
+                    </td>
                     {columns.map((c, fi) => {
                       if (c.type === "source") {
                         const attrIds: string[] = (() => { try { return JSON.parse(lead.attribute_ids ?? "[]"); } catch { return []; } })();

@@ -27,7 +27,8 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get("limit") || "45"), 500);
   const offset = parseInt(searchParams.get("offset") || "0");
 
-  // Paginate at the ID level to avoid skip/take operating on JOIN-duplicated rows
+  // Paginate at the ID level to avoid skip/take operating on JOIN-duplicated rows.
+  // For the common case (no search) use pure Prisma to avoid raw query connection issues.
   let allIds: string[];
   if (search) {
     const pattern = `%${search}%`;
@@ -43,10 +44,8 @@ export async function GET(req: NextRequest) {
     `;
     allIds = rows.map(r => r.id);
   } else {
-    const rows = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "Lead" WHERE platform_id = ${platformId} ORDER BY created_at DESC
-    `;
-    allIds = rows.map(r => r.id);
+    const idRows = await prisma.lead.findMany({ where: { platform_id: platformId }, select: { id: true }, orderBy: { created_at: "desc" } });
+    allIds = idRows.map(r => r.id);
   }
 
   const total = allIds.length;
