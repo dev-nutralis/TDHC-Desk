@@ -66,6 +66,44 @@ function applyTransform(value: string, transform: string | undefined): string {
 
 const STANDARD_FALLBACK_FIELDS = ["email", "first_name", "last_name", "phone_number"] as const;
 
+// Dynamic source: treat value as an attribute label under the "Klaviyo" source.
+// Finds or creates the "Forma" attribute group and the item — never creates a new Source.
+async function findOrCreateKlaviyoAttribute(
+  label: string,
+  platform_id: string
+): Promise<{ sourceId: string; itemId: string } | null> {
+  const klaviyoSource = await prisma.source.findFirst({
+    where: { name: "Klaviyo", platform_id },
+    select: { id: true },
+  });
+  if (!klaviyoSource) return null;
+
+  let group = await prisma.sourceAttributeGroup.findFirst({
+    where: { source_id: klaviyoSource.id, name: "Forma" },
+    select: { id: true },
+  });
+  if (!group) {
+    group = await prisma.sourceAttributeGroup.create({
+      data: { name: "Forma", source_id: klaviyoSource.id, sort_order: 1 },
+      select: { id: true },
+    });
+  }
+
+  let item = await prisma.sourceAttributeItem.findFirst({
+    where: { group_id: group.id, label },
+    select: { id: true },
+  });
+  if (!item) {
+    const count = await prisma.sourceAttributeItem.count({ where: { group_id: group.id } });
+    item = await prisma.sourceAttributeItem.create({
+      data: { label, group_id: group.id, sort_order: count + 1 },
+      select: { id: true },
+    });
+  }
+
+  return { sourceId: klaviyoSource.id, itemId: item.id };
+}
+
 // POST /api/webhooks/klaviyo/[platform]/[token]
 // Public endpoint — no authentication required. The token in the URL acts as the secret.
 export async function POST(
@@ -137,22 +175,33 @@ export async function POST(
         const fieldType = fieldTypeMap.get(contact_field_key);
 
         if (fieldType === "source_select" || fieldType === "builtin_source") {
-          // Resolve by name (or create if missing) and store on Contact.source_id
-          const existingSource = await prisma.source.findFirst({
-            where: { name: value, platform_id },
-            select: { id: true },
-          });
-          if (existingSource) {
-            resolvedSourceId = existingSource.id;
+          const isDynamic = !static_value;
+          if (isDynamic) {
+            // Dynamic (no static_value): treat value as attribute label under "Klaviyo" source.
+            // Auto-creates the attribute item — never creates a new Source.
+            const result = await findOrCreateKlaviyoAttribute(value, platform_id);
+            if (result) {
+              resolvedSourceId = result.sourceId;
+              resolvedAttributeIds = JSON.stringify([result.itemId]);
+            }
           } else {
-            const created = await prisma.source.create({
-              data: { name: value, platform_id },
+            // Static: admin-configured source name — find or create the source.
+            const existingSource = await prisma.source.findFirst({
+              where: { name: value, platform_id },
               select: { id: true },
             });
-            resolvedSourceId = created.id;
-          }
-          if (static_attribute_ids?.length) {
-            resolvedAttributeIds = JSON.stringify(static_attribute_ids);
+            if (existingSource) {
+              resolvedSourceId = existingSource.id;
+            } else {
+              const created = await prisma.source.create({
+                data: { name: value, platform_id },
+                select: { id: true },
+              });
+              resolvedSourceId = created.id;
+            }
+            if (static_attribute_ids?.length) {
+              resolvedAttributeIds = JSON.stringify(static_attribute_ids);
+            }
           }
         } else {
           fieldValues[contact_field_key] = value;
@@ -254,12 +303,17 @@ export async function POST(
 
           const fieldType = dealFieldTypeMap.get(contact_field_key);
           if (fieldType === "source_select" || fieldType === "builtin_source") {
-            const existingSource = await prisma.source.findFirst({
-              where: { name: value, platform_id },
-              select: { id: true },
-            });
-            resolvedDealSourceId = existingSource?.id
-              ?? (await prisma.source.create({ data: { name: value, platform_id }, select: { id: true } })).id;
+            if (!static_value) {
+              const result = await findOrCreateKlaviyoAttribute(value, platform_id);
+              if (result) resolvedDealSourceId = result.sourceId;
+            } else {
+              const existingSource = await prisma.source.findFirst({
+                where: { name: value, platform_id },
+                select: { id: true },
+              });
+              resolvedDealSourceId = existingSource?.id
+                ?? (await prisma.source.create({ data: { name: value, platform_id }, select: { id: true } })).id;
+            }
           } else {
             dealFieldValues[contact_field_key] = value;
           }
