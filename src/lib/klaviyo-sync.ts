@@ -122,7 +122,11 @@ export async function syncContactToKlaviyo(contactId: string): Promise<void> {
     const apiKey = platform?.klaviyo_api_key?.trim();
     if (!apiKey) return; // No API key configured
 
-    const pipelineLists = ((platform?.klaviyo_pipeline_lists ?? {}) as Record<string, string>);
+    // Normalize: values can be string (legacy) or string[] (new format)
+    const rawLists = (platform?.klaviyo_pipeline_lists ?? {}) as Record<string, string | string[]>;
+    const toIds = (v: string | string[] | undefined): string[] =>
+      !v ? [] : Array.isArray(v) ? v.filter(Boolean) : v.trim() ? [v.trim()] : [];
+
     const pipeline = extractPipeline(fv);
 
     // Extract name and phone for profile enrichment
@@ -140,14 +144,14 @@ export async function syncContactToKlaviyo(contactId: string): Promise<void> {
     const profileId = await upsertKlaviyoProfile(apiKey, email, firstName, lastName, phone);
     if (!profileId) return;
 
-    // 2. Remove from all pipeline lists (clean slate)
-    const allListIds = Object.values(pipelineLists).filter(Boolean);
+    // 2. Remove from ALL configured lists (clean slate)
+    const allListIds = [...new Set(Object.values(rawLists).flatMap(v => toIds(v)))];
     await Promise.all(allListIds.map(listId => removeFromList(apiKey, listId, profileId)));
 
-    // 3. Add to the correct pipeline list
-    if (pipeline && pipelineLists[pipeline]) {
-      await addToList(apiKey, pipelineLists[pipeline], profileId);
-    }
+    // 3. Add to target lists: use pipeline value, fall back to __default__
+    const targetKey = pipeline && rawLists[pipeline] !== undefined ? pipeline : "__default__";
+    const targetIds = toIds(rawLists[targetKey]);
+    await Promise.all(targetIds.map(listId => addToList(apiKey, listId, profileId)));
 
     // 4. Update contact with profile ID and sync timestamp
     await prisma.contact.update({
@@ -158,7 +162,7 @@ export async function syncContactToKlaviyo(contactId: string): Promise<void> {
       },
     });
 
-    console.log(`[klaviyo-sync] synced contact ${contactId} → profile ${profileId}, list: ${pipeline ?? "none"}`);
+    console.log(`[klaviyo-sync] synced contact ${contactId} → profile ${profileId}, key: ${targetKey}, lists: [${targetIds.join(", ")}]`);
   } catch (err) {
     console.error("[klaviyo-sync] error syncing contact", contactId, err);
   }

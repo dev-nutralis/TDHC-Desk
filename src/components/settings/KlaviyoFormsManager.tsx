@@ -828,7 +828,7 @@ export default function KlaviyoFormsManager() {
 
   // ── API key + pipeline→list mapping ─────────────────────────────────────────
   const [apiKey, setApiKey] = useState("");
-  const [pipelineLists, setPipelineLists] = useState<Record<string, string>>({});
+  const [pipelineLists, setPipelineLists] = useState<Record<string, string[]>>({});
   const [pipelineOptions, setPipelineOptions] = useState<{ value: string; label: string }[]>([]);
   const [savingApiKey, setSavingApiKey] = useState(false);
   const [apiKeySaved, setApiKeySaved] = useState(false);
@@ -864,7 +864,13 @@ export default function KlaviyoFormsManager() {
         if (cancelled) return;
         setPlatformId(match.id);
         setApiKey(match.klaviyo_api_key ?? "");
-        setPipelineLists(match.klaviyo_pipeline_lists ?? {});
+        // Normalize: legacy string values → string[]
+        const raw = (match.klaviyo_pipeline_lists ?? {}) as Record<string, string | string[]>;
+        const normalized: Record<string, string[]> = {};
+        for (const [k, v] of Object.entries(raw)) {
+          normalized[k] = Array.isArray(v) ? v : (v ? [v] : []);
+        }
+        setPipelineLists(normalized);
 
         // Load pipeline field options
         const pfRes = await fetch(`/api/deal-fields`);
@@ -996,22 +1002,83 @@ export default function KlaviyoFormsManager() {
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <List size={13} className="text-[#68717A]" />
-                <label className="text-xs font-semibold text-[#2F3941] uppercase tracking-wide">Pipeline → Klaviyo List</label>
+                <label className="text-xs font-semibold text-[#2F3941] uppercase tracking-wide">Pipeline → Klaviyo Lists</label>
               </div>
               <div className="rounded-lg border border-[#D8DCDE] overflow-hidden divide-y divide-[#D8DCDE]">
-                {pipelineOptions.map(opt => (
-                  <div key={opt.value} className="flex items-center gap-3 px-4 py-2.5">
-                    <span className="text-sm text-[#2F3941] w-48 shrink-0 truncate">{opt.label}</span>
-                    <span className="text-[#C2C8CC] text-xs">→</span>
-                    <input
-                      type="text"
-                      value={pipelineLists[opt.value] ?? ""}
-                      onChange={e => setPipelineLists(prev => ({ ...prev, [opt.value]: e.target.value }))}
-                      placeholder="Klaviyo List ID"
-                      className="flex-1 h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all font-mono"
-                    />
-                  </div>
-                ))}
+                {/* Default row — for contacts without pipeline */}
+                {(() => {
+                  const key = "__default__";
+                  const ids = pipelineLists[key] ?? [];
+                  return (
+                    <div key={key} className="px-4 py-2.5 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-[#68717A] w-48 shrink-0 italic">No pipeline (default)</span>
+                        <span className="text-[#C2C8CC] text-xs">→</span>
+                        <button
+                          onClick={() => setPipelineLists(prev => ({ ...prev, [key]: [...(prev[key] ?? []), ""] }))}
+                          className="ml-auto text-[11px] text-[#038153] hover:underline"
+                        >+ Add list</button>
+                      </div>
+                      {ids.map((id, i) => (
+                        <div key={i} className="flex items-center gap-2 pl-52">
+                          <input
+                            type="text"
+                            value={id}
+                            onChange={e => setPipelineLists(prev => {
+                              const next = [...(prev[key] ?? [])];
+                              next[i] = e.target.value;
+                              return { ...prev, [key]: next };
+                            })}
+                            placeholder="Klaviyo List ID"
+                            className="flex-1 h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all font-mono"
+                          />
+                          <button
+                            onClick={() => setPipelineLists(prev => ({ ...prev, [key]: (prev[key] ?? []).filter((_, j) => j !== i) }))}
+                            className="text-[#C2C8CC] hover:text-red-400 transition-colors"
+                          ><X size={14} /></button>
+                        </div>
+                      ))}
+                      {ids.length === 0 && <p className="pl-52 text-[11px] text-[#C2C8CC] italic">Kontakti bez pipelinea neće biti dodani ni na jednu listu.</p>}
+                    </div>
+                  );
+                })()}
+                {/* Pipeline option rows */}
+                {pipelineOptions.map(opt => {
+                  const key = opt.value;
+                  const ids = pipelineLists[key] ?? [];
+                  return (
+                    <div key={key} className="px-4 py-2.5 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-[#2F3941] w-48 shrink-0 truncate">{opt.label}</span>
+                        <span className="text-[#C2C8CC] text-xs">→</span>
+                        <button
+                          onClick={() => setPipelineLists(prev => ({ ...prev, [key]: [...(prev[key] ?? []), ""] }))}
+                          className="ml-auto text-[11px] text-[#038153] hover:underline"
+                        >+ Add list</button>
+                      </div>
+                      {ids.map((id, i) => (
+                        <div key={i} className="flex items-center gap-2 pl-52">
+                          <input
+                            type="text"
+                            value={id}
+                            onChange={e => setPipelineLists(prev => {
+                              const next = [...(prev[key] ?? [])];
+                              next[i] = e.target.value;
+                              return { ...prev, [key]: next };
+                            })}
+                            placeholder="Klaviyo List ID"
+                            className="flex-1 h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all font-mono"
+                          />
+                          <button
+                            onClick={() => setPipelineLists(prev => ({ ...prev, [key]: (prev[key] ?? []).filter((_, j) => j !== i) }))}
+                            className="text-[#C2C8CC] hover:text-red-400 transition-colors"
+                          ><X size={14} /></button>
+                        </div>
+                      ))}
+                      {ids.length === 0 && <p className="pl-52 text-[11px] text-[#C2C8CC] italic">Nema liste — kontakti s ovim pipelineom neće biti dodani.</p>}
+                    </div>
+                  );
+                })}
               </div>
               <p className="text-[11px] text-[#68717A]">List ID možeš naći u Klaviyo → Lists &amp; Segments → odaberi listu → URL sadrži ID.</p>
             </div>
