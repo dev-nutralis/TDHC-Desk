@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRouter, useParams } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X, CheckSquare, Upload } from "lucide-react";
+import { Search, Plus, Loader2, Contact2, MoreHorizontal, Trash2, UserCircle2, Star, Settings, Pencil, SlidersHorizontal, X, CheckSquare, Upload, RefreshCw, Check } from "lucide-react";
 import ContactFilterPanel, { FilterCondition, chipLabel } from "./ContactFilterPanel";
 import ContactModal from "./ContactModal";
 import ContactDeleteDialog from "./ContactDeleteDialog";
@@ -687,6 +687,8 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
   // Selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [klaviyoSyncing, setKlaviyoSyncing] = useState(false);
+  const [klaviyoSynced, setKlaviyoSynced] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const COL_WIDTHS_KEY = "contacts_col_widths";
@@ -870,6 +872,19 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
     fetchContacts();
   };
 
+  const handleBulkKlaviyoSync = async () => {
+    if (selectedIds.size === 0 || klaviyoSyncing) return;
+    setKlaviyoSyncing(true);
+    await fetch("/api/contacts/bulk-klaviyo-sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selectedIds) }),
+    });
+    setKlaviyoSyncing(false);
+    setKlaviyoSynced(true);
+    setTimeout(() => setKlaviyoSynced(false), 3000);
+  };
+
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
     setBulkDeleting(true);
@@ -923,7 +938,7 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
   })();
 
   // Checkbox(super_admin) + Name + dynamic columns + Owner + Created + Actions
-  const totalCols = columns.length + 4 + (isSuperAdmin ? 1 : 0);
+  const totalCols = columns.length + 5;
 
   const thClass = "text-left px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-[#68717A] whitespace-nowrap relative select-none";
 
@@ -984,10 +999,10 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
         </div>
 
         {/* Bulk delete bar (super admin only) */}
-        {isSuperAdmin && selectedIds.size > 0 && (
-          <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[#FFF0F1] border border-[#FFC9CC]">
-            <CheckSquare size={14} className="text-[#CC3340] shrink-0" />
-            <span className="text-sm font-medium text-[#CC3340]">
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-[#F3F4F6] border border-[#D8DCDE]">
+            <CheckSquare size={14} className="text-[#038153] shrink-0" />
+            <span className="text-sm font-medium text-[#2F3941]">
               {selectedIds.size} {selectedIds.size === 1 ? "contact" : "contacts"} selected
             </span>
             <div className="flex-1" />
@@ -998,12 +1013,21 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
               Deselect all
             </button>
             <button
+              onClick={handleBulkKlaviyoSync}
+              disabled={klaviyoSyncing}
+              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white hover:brightness-110 disabled:opacity-60 transition-all"
+              style={{ background: klaviyoSynced ? "#038153" : "#5C6AC4" }}
+            >
+              {klaviyoSyncing ? <Loader2 size={12} className="animate-spin" /> : klaviyoSynced ? <Check size={12} /> : <RefreshCw size={12} />}
+              {klaviyoSyncing ? "Syncing..." : klaviyoSynced ? "Synced!" : "Push to Klaviyo"}
+            </button>
+            {isSuperAdmin && <button
               onClick={() => setConfirmBulkDelete(true)}
               className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-xs font-medium text-white bg-[#CC3340] hover:brightness-110 transition-all"
             >
               <Trash2 size={12} />
               Delete selected
-            </button>
+            </button>}
           </div>
         )}
 
@@ -1057,7 +1081,7 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
       >
           <table className="text-sm" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
             <colgroup>
-              {isSuperAdmin && <col style={{ width: 40 }} />}
+              <col style={{ width: 40 }} />
               <col style={{ width: colWidths["__name__"] ?? 200 }} />
               {fieldsLoading && <col style={{ width: 160 }} />}
               {!fieldsLoading && columns.length === 0 && <col style={{ width: 200 }} />}
@@ -1072,18 +1096,15 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
             </colgroup>
             <thead>
               <tr className="border-b border-[#D8DCDE] bg-[#F8F9F9]">
-                {/* Select all checkbox (super admin only) */}
-                {isSuperAdmin && (
-                  <th className="px-3 py-3" style={{ width: 40 }}>
-                    <input
-                      type="checkbox"
-                      checked={contacts.length > 0 && selectedIds.size === contacts.length}
-                      ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < contacts.length; }}
-                      onChange={toggleSelectAll}
-                      className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
-                    />
-                  </th>
-                )}
+                <th className="px-3 py-3 sticky top-0 bg-[#F8F9F9] z-10 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-px after:bg-[#D8DCDE] after:content-['']" style={{ width: 40 }}>
+                  <input
+                    type="checkbox"
+                    checked={contacts.length > 0 && selectedIds.size === contacts.length}
+                    ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < contacts.length; }}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
+                  />
+                </th>
                 {/* Name — always first */}
                 <th className={thClass}>
                   Name
@@ -1188,20 +1209,18 @@ export default function ContactsTable({ defaultUserId, userRole }: { defaultUser
                 return (
                   <tr
                     key={contact.id}
-                    onClick={() => { if (selectedIds.size > 0 && isSuperAdmin) { toggleSelect(contact.id); return; } router.push(`/${platform}/contacts/${contact.id}`); }}
+                    onClick={() => { if (selectedIds.size > 0) { toggleSelect(contact.id); return; } router.push(`/${platform}/contacts/${contact.id}`); }}
                     className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer ${selectedIds.has(contact.id) ? "bg-[#F0FBF6]" : ""}`}
                   >
-                    {/* Checkbox (super admin only) */}
-                    {isSuperAdmin && (
-                      <td className="px-3 py-4" onClick={e => { e.stopPropagation(); toggleSelect(contact.id); }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(contact.id)}
-                          onChange={() => toggleSelect(contact.id)}
-                          className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
-                        />
-                      </td>
-                    )}
+                    {/* Checkbox */}
+                    <td className="px-3 py-4" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(contact.id)}
+                        onChange={() => toggleSelect(contact.id)}
+                        className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer"
+                      />
+                    </td>
                     {/* Name — click navigates to detail page; pencil opens profile for editing */}
                     <td className="px-4 py-4" style={{ minWidth: 180 }}>
                       <div className="flex items-center gap-2.5 group/name">

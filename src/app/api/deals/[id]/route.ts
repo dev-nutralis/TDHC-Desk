@@ -51,6 +51,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (field_values !== undefined) {
     syncDealValuesToContact(id, field_values as Record<string, unknown>).catch(console.error);
+
+    // Klaviyo sync if pipeline changed
+    const oldPipeline = (existing.field_values as Record<string, unknown> | null)?.["pipeline"];
+    const newPipeline = (field_values as Record<string, unknown>)["pipeline"];
+    if (newPipeline !== undefined && newPipeline !== oldPipeline) {
+      import("@/lib/klaviyo-sync").then(({ syncContactToKlaviyo }) =>
+        syncContactToKlaviyo(deal.contact_id).catch(console.error)
+      );
+    }
   }
 
   // Propagate source change up to parent contact and sibling deals

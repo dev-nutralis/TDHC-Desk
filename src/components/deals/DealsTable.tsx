@@ -797,7 +797,7 @@ export default function DealsTable({ defaultUserId, userRole }: { defaultUserId:
                   return (
                   <tr key={deal.id} onClick={() => router.push('/deals/' + deal.id)} className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors cursor-pointer ${selectedIds.has(deal.id) ? "bg-[#F0FBF6]" : ""}`}>
                     {isSuperAdmin && (
-                      <td className="px-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(deal.id); }}>
+                      <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={selectedIds.has(deal.id)} onChange={() => toggleSelect(deal.id)}
                           className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer" />
                       </td>

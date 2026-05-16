@@ -1035,7 +1035,7 @@ export default function LeadsTable({ defaultUserId, userRole }: { defaultUserId:
                   if (!lead) return null;
                   return (
                   <tr key={lead.id} className={`group border-b border-[#D8DCDE] last:border-0 hover:bg-[#F8F9F9] transition-colors ${selectedIds.has(lead.id) ? "bg-[#F0FBF6]" : ""}`}>
-                    <td className="px-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(lead.id); }}>
+                    <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selectedIds.has(lead.id)} onChange={() => toggleSelect(lead.id)}
                         className="w-4 h-4 rounded border-[#D8DCDE] accent-[#038153] cursor-pointer" />
                     </td>

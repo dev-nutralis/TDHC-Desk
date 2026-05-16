@@ -23,6 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     email_auto_contact_attribute_ids,
     lead_show_source, contact_show_source, deal_show_source,
     lead_source_sort_order, contact_source_sort_order, deal_source_sort_order,
+    klaviyo_api_key, klaviyo_pipeline_lists,
   } = body;
   try {
     const platform = await prisma.platform.update({
@@ -52,6 +53,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         lead_source_sort_order:    lead_source_sort_order    !== undefined ? Number(lead_source_sort_order)    : undefined,
         contact_source_sort_order: contact_source_sort_order !== undefined ? Number(contact_source_sort_order) : undefined,
         deal_source_sort_order:    deal_source_sort_order    !== undefined ? Number(deal_source_sort_order)    : undefined,
+        klaviyo_api_key:           klaviyo_api_key           !== undefined ? (klaviyo_api_key           || null) : undefined,
+        klaviyo_pipeline_lists:    klaviyo_pipeline_lists    !== undefined ? klaviyo_pipeline_lists              : undefined,
       },
     });
     return NextResponse.json(platform);

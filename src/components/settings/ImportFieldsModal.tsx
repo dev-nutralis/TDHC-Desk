@@ -31,6 +31,7 @@ interface Props {
 // ── Module → API mapping ──────────────────────────────────────────────────────
 const MODULES = [
   { key: "leads", label: "Leads", api: "/api/lead-fields" },
+  { key: "deals", label: "Deals", api: "/api/deal-fields" },
 ];
 
 const FIELD_TYPE_LABELS: Record<string, string> = {
@@ -276,8 +277,8 @@ export default function ImportFieldsModal({ open, onClose, onImported, existingF
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-[#EAF7F0] border border-[#B7E5D0]">
               <Link2 size={13} className="text-[#038153] shrink-0 mt-0.5" />
               <p className="text-xs text-[#038153]">
-                Importovani fieldovi su <strong>linked</strong> sa Leads modulom.
-                Sve izmjene se moraju raditi u Leads → Settings.
+                Importovani fieldovi su <strong>linked</strong> sa {MODULES.find(m => m.key === module)?.label} modulom.
+                Sve izmjene se moraju raditi u {MODULES.find(m => m.key === module)?.label} → Settings.
               </p>
             </div>
           )}

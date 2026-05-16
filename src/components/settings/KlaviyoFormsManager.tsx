@@ -12,6 +12,8 @@ import {
   X,
   Settings2,
   ChevronDown,
+  Key,
+  List,
 } from "lucide-react";
 import { useParams } from "next/navigation";
 
@@ -60,6 +62,8 @@ interface Platform {
   id: string;
   name: string;
   slug: string;
+  klaviyo_api_key?: string | null;
+  klaviyo_pipeline_lists?: Record<string, string> | null;
 }
 
 const KLAVIYO_SUGGESTIONS = [
@@ -822,6 +826,13 @@ export default function KlaviyoFormsManager() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // ── API key + pipeline→list mapping ─────────────────────────────────────────
+  const [apiKey, setApiKey] = useState("");
+  const [pipelineLists, setPipelineLists] = useState<Record<string, string>>({});
+  const [pipelineOptions, setPipelineOptions] = useState<{ value: string; label: string }[]>([]);
+  const [savingApiKey, setSavingApiKey] = useState(false);
+  const [apiKeySaved, setApiKeySaved] = useState(false);
+
   // ── Load platform ID then forms ──────────────────────────────────────────────
 
   const loadForms = useCallback(async (pid: string) => {
@@ -852,6 +863,17 @@ export default function KlaviyoFormsManager() {
         if (!match) throw new Error(`Platform "${platformSlug}" not found`);
         if (cancelled) return;
         setPlatformId(match.id);
+        setApiKey(match.klaviyo_api_key ?? "");
+        setPipelineLists(match.klaviyo_pipeline_lists ?? {});
+
+        // Load pipeline field options
+        const pfRes = await fetch(`/api/deal-fields`);
+        if (pfRes.ok) {
+          const pfData = await pfRes.json() as { field_key: string; options: { value: string; label: string }[] }[];
+          const pf = pfData.find(f => f.field_key === "pipeline");
+          if (pf) setPipelineOptions(pf.options ?? []);
+        }
+
         await loadForms(match.id);
       } catch (err: unknown) {
         if (!cancelled) {
@@ -865,6 +887,24 @@ export default function KlaviyoFormsManager() {
     void init();
     return () => { cancelled = true; };
   }, [platformSlug, loadForms]);
+
+  // ── Save API key + pipeline lists ────────────────────────────────────────────
+
+  const saveApiKeyConfig = async () => {
+    if (!platformId) return;
+    setSavingApiKey(true);
+    try {
+      await fetch(`/api/platforms/${platformId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ klaviyo_api_key: apiKey, klaviyo_pipeline_lists: pipelineLists }),
+      });
+      setApiKeySaved(true);
+      setTimeout(() => setApiKeySaved(false), 2500);
+    } finally {
+      setSavingApiKey(false);
+    }
+  };
 
   // ── Add form ─────────────────────────────────────────────────────────────────
 
@@ -930,7 +970,69 @@ export default function KlaviyoFormsManager() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+
+      {/* ── API Key + Pipeline → List mapping ───────────────────────────────── */}
+      <div className="rounded-xl border border-[#D8DCDE] bg-white overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-[#D8DCDE] bg-[#F8F9F9]">
+          <Key size={14} className="text-[#68717A]" />
+          <span className="text-sm font-semibold text-[#2F3941]">Klaviyo Configuration</span>
+        </div>
+        <div className="px-5 py-5 space-y-5">
+          {/* API Key */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-[#2F3941] uppercase tracking-wide">Private API Key</label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="pk_..."
+              className="h-9 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all font-mono"
+            />
+          </div>
+
+          {/* Pipeline → List ID mapping */}
+          {pipelineOptions.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <List size={13} className="text-[#68717A]" />
+                <label className="text-xs font-semibold text-[#2F3941] uppercase tracking-wide">Pipeline → Klaviyo List</label>
+              </div>
+              <div className="rounded-lg border border-[#D8DCDE] overflow-hidden divide-y divide-[#D8DCDE]">
+                {pipelineOptions.map(opt => (
+                  <div key={opt.value} className="flex items-center gap-3 px-4 py-2.5">
+                    <span className="text-sm text-[#2F3941] w-48 shrink-0 truncate">{opt.label}</span>
+                    <span className="text-[#C2C8CC] text-xs">→</span>
+                    <input
+                      type="text"
+                      value={pipelineLists[opt.value] ?? ""}
+                      onChange={e => setPipelineLists(prev => ({ ...prev, [opt.value]: e.target.value }))}
+                      placeholder="Klaviyo List ID"
+                      className="flex-1 h-8 px-3 text-sm rounded-md border border-[#D8DCDE] bg-white text-[#2F3941] outline-none focus:border-[#038153] focus:ring-2 focus:ring-[#038153]/15 transition-all font-mono"
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-[#68717A]">List ID možeš naći u Klaviyo → Lists &amp; Segments → odaberi listu → URL sadrži ID.</p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <button
+              onClick={saveApiKeyConfig}
+              disabled={savingApiKey}
+              className="h-8 px-4 text-sm font-medium rounded-md text-white flex items-center gap-1.5 hover:brightness-110 disabled:opacity-50 transition-all"
+              style={{ background: "#038153" }}
+            >
+              {savingApiKey ? <Loader2 size={13} className="animate-spin" /> : apiKeySaved ? <CheckCheck size={13} /> : null}
+              {apiKeySaved ? "Saved!" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Forms ───────────────────────────────────────────────────────────── */}
+      <div className="space-y-4">
       {/* Header row */}
       <div className="flex justify-end">
         <button
@@ -973,6 +1075,7 @@ export default function KlaviyoFormsManager() {
           error={saveError}
         />
       )}
+      </div>
     </div>
   );
 }

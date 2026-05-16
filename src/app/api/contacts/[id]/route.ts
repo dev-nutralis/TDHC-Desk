@@ -65,6 +65,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       syncContactValuesToDeal(id, field_values as Record<string, unknown>).catch(console.error);
     }
 
+    // Async Klaviyo sync — don't await, don't block response
+    import("@/lib/klaviyo-sync").then(({ syncContactToKlaviyo }) =>
+      syncContactToKlaviyo(id).catch(console.error)
+    );
+
     // Propagate source change down to all linked deals
     if (sourceChanged) {
       await prisma.deal.updateMany({
